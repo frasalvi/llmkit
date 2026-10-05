@@ -58,6 +58,11 @@ class CallRecord:
         error_type: Exception class name on failure.
         error: Exception message on failure.
         tags: Caller-supplied labels.
+        cache: ``hit``, ``miss`` or ``retry`` when the call went through a cache, else
+            None.
+        sample: The sample index requested.
+        cache_attempts: Outcomes stored under this request's key after the call, or
+            None without a cache.
     """
 
     timestamp: str
@@ -85,6 +90,9 @@ class CallRecord:
     error_type: str | None
     error: str | None
     tags: dict[str, Any]
+    cache: str | None = None
+    sample: int = 0
+    cache_attempts: int | None = None
 
     def to_dict(self, *, content: bool = True) -> dict[str, Any]:
         """Return a JSON-ready dict.
@@ -145,6 +153,9 @@ def build_record(
     attempts: int,
     latency_ms: int,
     tags: Mapping[str, Any],
+    cache: str | None = None,
+    sample: int = 0,
+    cache_attempts: int | None = None,
 ) -> CallRecord:
     """Assemble the record for one call.
 
@@ -155,6 +166,9 @@ def build_record(
         attempts: Attempts made.
         latency_ms: Wall-clock duration.
         tags: Caller labels.
+        cache: ``hit``, ``miss`` or ``retry`` when a cache was used.
+        sample: The sample index.
+        cache_attempts: Outcomes stored under the key after the call.
 
     Returns:
         The record.
@@ -186,6 +200,9 @@ def build_record(
         error_type=type(error).__name__ if error else None,
         error=str(error) if error else None,
         tags=dict(tags),
+        cache=cache,
+        sample=sample,
+        cache_attempts=cache_attempts,
     )
 
 

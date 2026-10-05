@@ -6,6 +6,7 @@ llmkit: one client for the LLMs the research projects call.
 from ._version import __version__
 from .client import LLM
 from .errors import (
+    BudgetExceeded,
     ContentFiltered,
     FatalRequest,
     LLMKitError,
@@ -40,6 +41,7 @@ from .types import (
 __all__ = [
     "LADDER",
     "LLM",
+    "BudgetExceeded",
     "CallRecord",
     "ContentFiltered",
     "Done",

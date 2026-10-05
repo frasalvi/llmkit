@@ -127,6 +127,10 @@ class RetriesExhausted(RequestError):
         self.attempts = attempts
 
 
+class BudgetExceeded(LLMKitError):
+    """A query's ``max_cost`` does not allow another request; nothing was sent."""
+
+
 class SchemaError(LLMKitError):
     """The model's output did not match the requested schema."""
 
