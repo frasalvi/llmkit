@@ -209,21 +209,33 @@ class _Run:
     """One query run's shared state."""
 
     def __init__(
-        self, keyed: list[tuple[str, Any]], max_cost: float | None, progress: bool
+        self,
+        keyed: list[tuple[str, Any]],
+        concurrency: int,
+        max_cost: float | None,
+        progress: bool,
     ) -> None:
         """Prepare a run.
 
         Args:
             keyed: ``(key, item)`` pairs in input order.
+            concurrency: Items in flight at once.
             max_cost: The cap on new spend, or ``None``.
             progress: Whether to write a counter to stderr.
+
+        Raises:
+            ValueError: If *concurrency* is below 1.
         """
+        if concurrency < 1:
+            raise ValueError("concurrency must be at least 1")
         self.keyed = keyed
         self.max_cost = max_cost
         self.budget = Budget(max_cost)
         self.outcomes: list[_Outcome | None] = [None] * len(keyed)
         self.stop = threading.Event()
         self.started = _now()
+        # Read before the run writes its own output into the working tree.
+        self.git = _git_state()
         self._progress = progress
         self._done = 0
         self._lock = threading.Lock()
@@ -363,7 +375,7 @@ class _Run:
         Returns:
             Plain data.
         """
-        commit, dirty = _git_state()
+        commit, dirty = self.git
         return {
             "llmkit_version": __version__,
             "git_commit": commit,
@@ -413,7 +425,7 @@ def query(
         The report.
 
     Raises:
-        ValueError: If two items share a key or *limit* is below 1.
+        ValueError: If two items share a key, or *limit* or *concurrency* is below 1.
         TypeError: If a key is not a string.
         KeyboardInterrupt: On Ctrl-C, after in-flight items finish; nothing is written.
     """
@@ -424,7 +436,7 @@ def query(
                 max_cost=max_cost, limit=limit, progress=progress,
             )
         )  # fmt: skip
-    run = _Run(_plan(items, key, limit), max_cost, progress)
+    run = _Run(_plan(items, key, limit), concurrency, max_cost, progress)
     pool = ThreadPoolExecutor(max_workers=concurrency)
     try:
         futures = [
@@ -476,7 +488,7 @@ async def aquery(
             query, items, fn, key=key, out=out, concurrency=concurrency,
             max_cost=max_cost, limit=limit, progress=progress,
         )  # fmt: skip
-    run = _Run(_plan(items, key, limit), max_cost, progress)
+    run = _Run(_plan(items, key, limit), concurrency, max_cost, progress)
     gate = asyncio.Semaphore(concurrency)
     tasks = [
         asyncio.create_task(run.run_async(index, fn, gate))

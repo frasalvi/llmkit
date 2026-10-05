@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -277,3 +278,34 @@ def test_empty_items_write_an_empty_file(tmp_path):
 def test_progress_counter(tmp_path, capsys):
     query(ITEMS[:2], lambda it: it["id"], key=KEY, out=tmp_path / "r.jsonl")
     assert "query: 2/2" in capsys.readouterr().err
+
+
+def test_git_state_is_read_before_the_results_are_written(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run(
+        [*git, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "i"],
+        check=True,
+    )
+    monkeypatch.chdir(repo)
+    query(ITEMS[:1], lambda it: it["id"], key=KEY, out="runs/r.jsonl", progress=False)
+    meta = json.loads((repo / "runs" / "r.meta.json").read_text())
+    assert meta["git_commit"] and meta["git_dirty"] is False
+
+
+def test_concurrency_below_one_is_refused(tmp_path):
+    async def afn(it):
+        return it["id"]
+
+    for fn in (lambda it: it["id"], afn):
+        with pytest.raises(ValueError, match="concurrency"):
+            query(
+                ITEMS,
+                fn,
+                key=KEY,
+                out=tmp_path / "r.jsonl",
+                concurrency=0,
+                progress=False,
+            )
