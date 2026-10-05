@@ -102,8 +102,9 @@ Refusals and truncation are not errors: check `result.stop_reason`.
 ## Call records
 
 `on_call` receives a `CallRecord` after every call that reaches the provider, success or
-failure. Errors raised before sending (`UnknownModel`, `UnsupportedEffort`, ...) and
-streams the caller stops reading early write no record.
+failure, and after every replay from a cache (`record.cache == "hit"`). Errors raised
+before sending (`UnknownModel`, `UnsupportedEffort`, `BudgetExceeded`, ...) and streams
+the caller stops reading early write no record.
 `JsonlLog(path, content=False)` drops prompts and responses. `llmkit.records.read(path)`
 loads a log. Use one log file per process.
 
