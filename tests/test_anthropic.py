@@ -221,3 +221,20 @@ def test_translator_rebuilds_blocks():
         "thinking": "pl",
         "signature": "sig",
     }
+
+
+def test_null_tool_arguments_survive_parse_and_replay():
+    raw = dict(
+        MESSAGE,
+        content=[
+            {
+                "type": "tool_use",
+                "id": "t1",
+                "name": "f",
+                "input": {"limit": None, "q": "x"},
+            }
+        ],
+    )
+    reply = T.parse(call(), ns(raw))
+    assert reply.tool_calls[0].arguments == {"limit": None, "q": "x"}
+    assert reply.provider_state.data[0]["input"] == {"limit": None, "q": "x"}

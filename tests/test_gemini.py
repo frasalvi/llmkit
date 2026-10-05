@@ -218,3 +218,22 @@ def test_translator_reports_function_calls():
     )
     assert events == [ToolCallDelta(0, "", "get_weather", '{"city": "Rome"}')]
     assert tr.finish().tool_calls[0].id == "llmkit-0"
+
+
+def test_null_tool_arguments_survive_parse_and_replay():
+    raw = {
+        "candidates": [
+            {
+                "finish_reason": "STOP",
+                "content": {
+                    "role": "model",
+                    "parts": [{"function_call": {"name": "f", "args": {"limit": None}}}],
+                },
+            }
+        ]
+    }
+    reply = T.parse(call(), ns(raw))
+    assert reply.tool_calls[0].arguments == {"limit": None}
+    assert reply.provider_state.data["parts"][0]["function_call"]["args"] == {
+        "limit": None
+    }

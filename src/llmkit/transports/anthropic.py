@@ -93,6 +93,21 @@ def _blocks(content: str | list[Part]) -> list[dict[str, Any]]:
     return out
 
 
+def _dump_block(block: Any) -> dict[str, Any]:
+    """Convert a response block to plain data for replay.
+
+    Args:
+        block: An SDK content block or namespace.
+
+    Returns:
+        The block as a dict, with a tool call's input kept exactly as the model sent it.
+    """
+    out: dict[str, Any] = to_dict(block)
+    if out.get("type") == "tool_use":
+        out["input"] = to_dict(getattr(block, "input", None), keep_none=True) or {}
+    return out
+
+
 def _messages(messages: list[Message]) -> list[dict[str, Any]]:
     """Render the conversation, merging consecutive same-role turns.
 
@@ -285,7 +300,7 @@ class AnthropicTransport:
             elif kind == "thinking":
                 thoughts.append(getattr(block, "thinking", "") or "")
             elif kind == "tool_use":
-                arguments = to_dict(getattr(block, "input", None)) or {}
+                arguments = to_dict(getattr(block, "input", None), keep_none=True) or {}
                 if not isinstance(arguments, dict):
                     arguments = {}
                 calls.append(
@@ -303,7 +318,7 @@ class AnthropicTransport:
             cached_input_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0),
             cache_write_tokens=int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
             served_model=str(getattr(raw, "model", "") or ""),
-            provider_state=ProviderState("anthropic", [to_dict(b) for b in content]),
+            provider_state=ProviderState("anthropic", [_dump_block(b) for b in content]),
         )
 
     def send(self, client: Any, body: dict[str, Any]) -> Any:
