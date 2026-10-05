@@ -116,6 +116,23 @@ def _input(messages: list[Message]) -> list[dict[str, Any]]:
     return items
 
 
+def _failure(error: Any, provider: str) -> Exception:
+    """Classify a failed response's error.
+
+    Args:
+        error: The response's ``error`` object, or a stream ``error`` event.
+        provider: The route's provider.
+
+    Returns:
+        A :class:`TransientError` for retryable codes, else a :class:`FatalRequest`.
+    """
+    code = getattr(error, "code", None)
+    # Code and message only: the whole response echoes the prompt and output.
+    detail = f"{code}: {getattr(error, 'message', None)}"
+    error_type = TransientError if code in TRANSIENT_CODES else FatalRequest
+    return error_type(f"response failed: {detail}", provider=provider)
+
+
 class _Translator:
     """Maps Responses stream events to llmkit events."""
 
@@ -148,13 +165,7 @@ class _Translator:
         elif kind in ("response.failed", "error"):
             response = getattr(chunk, "response", None)
             error = getattr(response, "error", None) or chunk
-            code = getattr(error, "code", None)
-            # Code and message only: the whole response echoes the prompt and output.
-            detail = f"{code}: {getattr(error, 'message', None)}"
-            error_type = TransientError if code in TRANSIENT_CODES else FatalRequest
-            raise error_type(
-                f"stream failed: {detail}", provider=self._call.route.provider
-            )
+            raise _failure(error, self._call.route.provider)
         return []
 
     def finish(self) -> Reply:
@@ -220,7 +231,15 @@ class ResponsesTransport:
         return body
 
     def parse(self, call: Call, raw: Any) -> Reply:
-        """Extract the reply. See :class:`llmkit.transports.base.Transport`."""
+        """Extract the reply. See :class:`llmkit.transports.base.Transport`.
+
+        Raises:
+            TransientError: If the response failed with a retryable error code.
+            FatalRequest: If the response failed with any other error code.
+        """
+        # A 200 can still carry a failed response.
+        if getattr(raw, "status", "") == "failed":
+            raise _failure(getattr(raw, "error", None), call.route.provider)
         texts: list[str] = []
         thoughts: list[str] = []
         calls: list[ToolCall] = []
