@@ -78,6 +78,7 @@ def all_required(schema: dict[str, Any]) -> bool:
     """
 
     def walk(node: Any) -> bool:
+        """Return whether *node* and everything inside it requires all properties."""
         if isinstance(node, dict):
             props = node.get("properties")
             if isinstance(props, dict) and set(node.get("required", [])) != set(props):
