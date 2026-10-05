@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -26,11 +26,27 @@ from .errors import SchemaError, UnsupportedFeature
 from .pricing import compute_cost, load_table, resolve_rates, warn_unpriced
 from .records import Hook, build_record
 from .registry import check_effort, resolve
-from .retry import acall_with_retries, call_with_retries
+from .retry import (
+    acall_with_retries,
+    call_with_retries,
+    classify,
+    final_error,
+    raise_from,
+    retry_delay,
+)
 from .schemas import close_objects, parse_output, schema_name, to_json_schema
 from .transports import TRANSPORTS
 from .transports.base import Call, Reply
-from .types import ROLE_ASSISTANT, STOP_TOOL_USE, Message, Result, Tool, Usage
+from .types import (
+    ROLE_ASSISTANT,
+    STOP_TOOL_USE,
+    Done,
+    Event,
+    Message,
+    Result,
+    Tool,
+    Usage,
+)
 
 Prompt = str | list[Message]
 Schema = dict[str, Any] | type[BaseModel]
@@ -418,6 +434,175 @@ class LLM:
             )
             raise
         return self._finish(call, reply, attempts, _elapsed_ms(started), schema, tags)
+
+    def _stream_failure(
+        self,
+        call: Call,
+        exc: Exception,
+        attempt: int,
+        yielded: bool,
+        started: float,
+        tags: Mapping[str, Any] | None,
+    ) -> float:
+        """Decide whether a failed stream attempt is retried.
+
+        Args:
+            call: The request.
+            exc: The failure.
+            attempt: The attempt that failed, from 1.
+            yielded: Whether any event already reached the caller.
+            started: ``time.monotonic`` value when the call began.
+            tags: Labels for this call's record.
+
+        Returns:
+            Seconds to wait before the next attempt.
+
+        Raises:
+            RequestError: The final error, after recording it, when no retry is allowed.
+            Exception: *exc* itself, after recording it, when it is not classifiable.
+        """
+        try:
+            err = classify(exc, self.provider)
+        except Exception as unknown:
+            self._emit(call, None, unknown, attempt, _elapsed_ms(started), tags)
+            raise
+        delay = (
+            None if yielded else retry_delay(err, attempt, self.max_retries, self._rng)
+        )
+        if delay is None:
+            final = final_error(err, attempt)
+            self._emit(call, None, final, attempt, _elapsed_ms(started), tags)
+            raise_from(final, exc)
+        return delay
+
+    def stream(
+        self,
+        prompt: Prompt,
+        *,
+        system: str = "",
+        effort: str | None = None,
+        max_tokens: int = 16000,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        cache_prefix: bool = False,
+        tools: list[Tool] | None = None,
+        tool_choice: str | None = None,
+        schema: Schema | None = None,
+        tags: Mapping[str, Any] | None = None,
+    ) -> Iterator[Event]:
+        """Stream one call.
+
+        A failure before the first event is retried like :meth:`complete`; once an
+        event has been yielded, a failure is raised as is, since the caller has
+        already seen partial output. A stream the caller abandons early is not
+        recorded.
+
+        Args:
+            prompt: A user message, or the whole conversation.
+            system: System instructions.
+            effort: A ladder rung, or ``None`` for the provider default.
+            max_tokens: Output cap.
+            temperature: Sampling temperature, or ``None`` to send none.
+            top_p: Nucleus cutoff, or ``None`` to send none.
+            cache_prefix: Request explicit prompt caching where it is not automatic.
+            tools: Tools the model may call.
+            tool_choice: ``auto``, ``none``, ``required`` or a tool name.
+            schema: A Pydantic model or JSON schema for structured output.
+            tags: Labels for this call's record.
+
+        Yields:
+            ``TextDelta``, ``ThinkingDelta`` and ``ToolCallDelta`` events, then
+            exactly one ``Done`` carrying the full result.
+
+        Raises:
+            LLMKitError: Any llmkit error; see :mod:`llmkit.errors`.
+        """
+        call = self._prepare(
+            prompt, system, effort, max_tokens, temperature, top_p,
+            cache_prefix, tools, tool_choice, schema,
+        )  # fmt: skip
+        body = self._transport.build(call)
+        started = time.monotonic()
+        attempt = 0
+        while True:
+            attempt += 1
+            translator = self._transport.translator(call)
+            yielded = False
+            try:
+                for chunk in self._transport.open_stream(self._clients.sync, body):
+                    for event in translator.feed(chunk):
+                        yielded = True
+                        yield event
+                reply = translator.finish()
+            except Exception as exc:
+                self._sleep(
+                    self._stream_failure(call, exc, attempt, yielded, started, tags)
+                )
+                continue
+            break
+        yield Done(self._finish(call, reply, attempt, _elapsed_ms(started), schema, tags))
+
+    async def astream(
+        self,
+        prompt: Prompt,
+        *,
+        system: str = "",
+        effort: str | None = None,
+        max_tokens: int = 16000,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        cache_prefix: bool = False,
+        tools: list[Tool] | None = None,
+        tool_choice: str | None = None,
+        schema: Schema | None = None,
+        tags: Mapping[str, Any] | None = None,
+    ) -> AsyncIterator[Event]:
+        """Async counterpart of :meth:`stream`; same arguments and events.
+
+        Args:
+            prompt: A user message, or the whole conversation.
+            system: System instructions.
+            effort: A ladder rung, or ``None`` for the provider default.
+            max_tokens: Output cap.
+            temperature: Sampling temperature, or ``None`` to send none.
+            top_p: Nucleus cutoff, or ``None`` to send none.
+            cache_prefix: Request explicit prompt caching where it is not automatic.
+            tools: Tools the model may call.
+            tool_choice: ``auto``, ``none``, ``required`` or a tool name.
+            schema: A Pydantic model or JSON schema for structured output.
+            tags: Labels for this call's record.
+
+        Yields:
+            ``TextDelta``, ``ThinkingDelta`` and ``ToolCallDelta`` events, then
+            exactly one ``Done`` carrying the full result.
+
+        Raises:
+            LLMKitError: Any llmkit error; see :mod:`llmkit.errors`.
+        """
+        call = self._prepare(
+            prompt, system, effort, max_tokens, temperature, top_p,
+            cache_prefix, tools, tool_choice, schema,
+        )  # fmt: skip
+        body = self._transport.build(call)
+        started = time.monotonic()
+        attempt = 0
+        while True:
+            attempt += 1
+            translator = self._transport.translator(call)
+            yielded = False
+            try:
+                chunks = await self._transport.aopen_stream(self._clients.async_, body)
+                async for chunk in chunks:
+                    for event in translator.feed(chunk):
+                        yielded = True
+                        yield event
+                reply = translator.finish()
+            except Exception as exc:
+                delay = self._stream_failure(call, exc, attempt, yielded, started, tags)
+                await self._asleep(delay)
+                continue
+            break
+        yield Done(self._finish(call, reply, attempt, _elapsed_ms(started), schema, tags))
 
 
 __all__ = ["LLM", "Prompt", "Schema"]
