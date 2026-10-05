@@ -5,8 +5,10 @@ OpenRouter, and Vertex model-garden endpoints.
 
 Reasoning text arrives as ``reasoning_content`` (DeepSeek-style hosts) or
 ``reasoning`` (OpenRouter). Some hosts require the reasoning of a tool-calling turn to
-be sent back, so it travels in ``provider_state``. Usage arrives in streams only on a
-final chunk with no choices, which is why ``include_usage`` is always requested.
+be sent back, so it travels in ``provider_state``; OpenRouter additionally returns
+``reasoning_details`` blocks, signatures included, which are replayed whole. Usage
+arrives in streams only on a final chunk with no choices, which is why
+``include_usage`` is always requested.
 """
 
 from __future__ import annotations
@@ -36,7 +38,15 @@ from ..types import (
     parts,
     text_of,
 )
-from .base import Call, Reply, StreamEvent, data_url, loads_arguments, tool_schema
+from .base import (
+    Call,
+    Reply,
+    StreamEvent,
+    data_url,
+    loads_arguments,
+    to_dict,
+    tool_schema,
+)
 
 _STOPS = {
     "length": STOP_MAX_TOKENS,
@@ -92,8 +102,11 @@ def _messages(call: Call) -> list[dict[str, Any]]:
             }
             state = m.provider_state
             if state is not None and state.transport == "chat":
+                details = state.data.get("reasoning_details")
                 reasoning = state.data.get("reasoning_content")
-                if reasoning:
+                if details and call.route.provider == "openrouter":
+                    message["reasoning_details"] = details
+                elif reasoning:
                     message[replay_key] = reasoning
             if m.tool_calls:
                 message["tool_calls"] = [
@@ -135,6 +148,25 @@ def _reasoning(message: Any) -> str:
     )
 
 
+def _merge_details(
+    blocks: dict[int, dict[str, Any]], fragments: list[dict[str, Any]]
+) -> None:
+    """Fold streamed ``reasoning_details`` fragments into whole blocks.
+
+    Args:
+        blocks: Blocks so far, by their ``index``; updated in place.
+        fragments: One delta's fragments. Text fields are concatenated; any other
+            field (``signature``, ``format``, ``id``) keeps its latest value.
+    """
+    for fragment in fragments:
+        block = blocks.setdefault(int(fragment.get("index", 0)), {})
+        for key, value in fragment.items():
+            if key in ("text", "summary", "data") and isinstance(value, str):
+                block[key] = block.get(key, "") + value
+            elif value is not None:
+                block[key] = value
+
+
 class _Translator:
     """Accumulates streamed deltas, including fragmented tool calls."""
 
@@ -149,6 +181,7 @@ class _Translator:
         self._call = call
         self._text: list[str] = []
         self._reasoning: list[str] = []
+        self._details: dict[int, dict[str, Any]] = {}
         self._tools: dict[int, dict[str, str]] = {}
         self._finish: str | None = None
         self._usage: Any = None
@@ -170,6 +203,9 @@ class _Translator:
             if reasoning:
                 self._reasoning.append(reasoning)
                 events.append(ThinkingDelta(reasoning))
+            _merge_details(
+                self._details, to_dict(getattr(delta, "reasoning_details", None) or [])
+            )
             for tool_call in getattr(delta, "tool_calls", None) or []:
                 slot = self._tools.setdefault(
                     tool_call.index, {"id": "", "name": "", "arguments": ""}
@@ -196,6 +232,7 @@ class _Translator:
         message = SimpleNamespace(
             content="".join(self._text) or None,
             reasoning_content="".join(self._reasoning) or None,
+            reasoning_details=[b for _, b in sorted(self._details.items())] or None,
             tool_calls=[
                 SimpleNamespace(
                     id=slot["id"],
@@ -296,6 +333,8 @@ class ChatTransport:
         finish = str(getattr(choice, "finish_reason", "") or "")
         stop = _STOPS.get(finish, STOP_TOOL_USE if calls else STOP_END)
         reasoning = _reasoning(message)
+        blocks = to_dict(getattr(message, "reasoning_details", None) or [])
+        state = {"reasoning_content": reasoning, "reasoning_details": blocks}
         # Usage: prompt_tokens includes cached tokens, so bill only the remainder as input.
         usage = getattr(raw, "usage", None)
         prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
@@ -312,8 +351,8 @@ class ChatTransport:
             served_model=str(getattr(raw, "model", "") or ""),
             usage_reported=usage is not None,
             provider_state=(
-                ProviderState("chat", {"reasoning_content": reasoning})
-                if reasoning
+                ProviderState("chat", {k: v for k, v in state.items() if v})
+                if reasoning or blocks
                 else None
             ),
         )

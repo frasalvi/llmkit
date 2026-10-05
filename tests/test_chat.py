@@ -212,3 +212,51 @@ def test_missing_usage_is_flagged_not_reported_as_free():
     tr = T.translator(call())
     tr.feed(ns({"choices": [{"delta": {"content": "Hi"}, "finish_reason": "stop"}]}))
     assert tr.finish().usage_reported is False
+
+
+SIGNED = [
+    {
+        "type": "reasoning.text",
+        "text": "think",
+        "format": "anthropic-claude-v1",
+        "index": 0,
+        "signature": "sig",
+    }
+]
+
+
+def test_openrouter_reasoning_details_are_kept_and_replayed_whole():
+    message = {"content": "", "reasoning": "think", "reasoning_details": SIGNED}
+    raw = dict(RESPONSE, choices=[{"finish_reason": "stop", "message": message}])
+    reply = T.parse(call("z-ai/glm-5.2", "openrouter"), ns(raw))
+    assert reply.provider_state.data["reasoning_details"] == SIGNED
+    turn = Message("assistant", "ok", provider_state=reply.provider_state)
+    msgs = [Message.user("q"), turn, Message.user("again")]
+    routed = T.build(call("z-ai/glm-5.2", "openrouter", messages=msgs))["messages"]
+    assert routed[1]["reasoning_details"] == SIGNED and "reasoning" not in routed[1]
+    # Other hosts get the text under their own field.
+    rendered = T.build(call(messages=msgs))["messages"]
+    assert rendered[1]["reasoning_content"] == "think"
+    assert "reasoning_details" not in rendered[1]
+
+
+def test_translator_merges_reasoning_detail_fragments():
+    tr = T.translator(call("z-ai/glm-5.2", "openrouter"))
+    fragments = [
+        {"type": "reasoning.text", "text": "thi", "format": "f", "index": 0},
+        {"type": "reasoning.text", "text": "nk", "format": "f", "index": 0},
+        {"type": "reasoning.text", "signature": "sig", "format": "f", "index": 0},
+    ]
+    for fragment in fragments:
+        tr.feed(ns({"choices": [{"delta": {"reasoning_details": [fragment]}}]}))
+    tr.feed(ns({"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]}))
+    details = tr.finish().provider_state.data["reasoning_details"]
+    assert details == [
+        {
+            "type": "reasoning.text",
+            "text": "think",
+            "format": "f",
+            "index": 0,
+            "signature": "sig",
+        }
+    ]
