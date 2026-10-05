@@ -9,7 +9,7 @@ completions on any of the three.
 ## Install
 
 ```bash
-uv add "llmkit @ git+https://github.com/frasalvi/llmkit@v0.1.1"
+uv add "llmkit @ git+https://github.com/frasalvi/llmkit@v0.1.2"
 ```
 
 ## Credentials
