@@ -83,6 +83,8 @@ class Reply:
         cache_write_tokens: Prompt tokens written to a cache.
         served_model: The model string the provider reported.
         provider_state: State to replay on the next turn.
+        usage_reported: Whether the response carried token usage; when ``False`` the
+            token fields are zeros that mean "unknown", not "free".
     """
 
     text: str = ""
@@ -95,6 +97,7 @@ class Reply:
     cache_write_tokens: int = 0
     served_model: str = ""
     provider_state: ProviderState | None = None
+    usage_reported: bool = True
 
 
 class Translator(Protocol):

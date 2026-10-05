@@ -230,7 +230,7 @@ class _Translator:
         message = SimpleNamespace(
             content=[ns(self._blocks[i]) for i in sorted(self._blocks)],
             stop_reason=self._stop,
-            usage=SimpleNamespace(**self._usage),
+            usage=SimpleNamespace(**self._usage) if self._usage else None,
             model=self._model,
         )
         return self._transport.parse(self._call, message)
@@ -318,6 +318,7 @@ class AnthropicTransport:
             cached_input_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0),
             cache_write_tokens=int(getattr(usage, "cache_creation_input_tokens", 0) or 0),
             served_model=str(getattr(raw, "model", "") or ""),
+            usage_reported=usage is not None,
             provider_state=ProviderState("anthropic", [_dump_block(b) for b in content]),
         )
 
