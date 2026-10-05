@@ -267,6 +267,7 @@ class ResponsesTransport:
             output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
             cached_input_tokens=cached,
             served_model=str(getattr(raw, "model", "") or ""),
+            usage_reported=usage is not None,
             provider_state=ProviderState("responses", [to_dict(i) for i in output]),
         )
 

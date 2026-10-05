@@ -201,3 +201,12 @@ def test_translator_truncated_stream_raises():
     tr.feed(ns({"choices": [{"delta": {"content": "Hi"}}]}))
     with pytest.raises(TransientError):
         tr.finish()
+
+
+def test_missing_usage_is_flagged_not_reported_as_free():
+    assert T.parse(call(), ns(RESPONSE)).usage_reported is True
+    no_usage = {k: v for k, v in RESPONSE.items() if k != "usage"}
+    assert T.parse(call(), ns(no_usage)).usage_reported is False
+    tr = T.translator(call())
+    tr.feed(ns({"choices": [{"delta": {"content": "Hi"}, "finish_reason": "stop"}]}))
+    assert tr.finish().usage_reported is False

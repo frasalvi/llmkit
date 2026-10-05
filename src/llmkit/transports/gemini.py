@@ -345,6 +345,7 @@ class GeminiTransport:
             output_tokens=output,
             cached_input_tokens=cached,
             served_model=str(getattr(raw, "model_version", "") or ""),
+            usage_reported=usage is not None,
             provider_state=(
                 ProviderState("gemini", _dump_content(content))
                 if content is not None
