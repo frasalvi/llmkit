@@ -230,3 +230,16 @@ def test_failed_stream_message_excludes_the_echoed_response():
         T.translator(call()).feed(ns(failed))
     text = str(info.value)
     assert "SECRET" not in text and "server_error" in text and "boom" in text
+
+
+def test_parse_failed_response_raises_by_code():
+    failed = {
+        "status": "failed",
+        "output": [],
+        "error": {"code": "server_error", "message": "boom"},
+    }
+    with pytest.raises(TransientError, match="server_error: boom"):
+        T.parse(call(), ns(failed))
+    invalid = dict(failed, error={"code": "invalid_prompt", "message": "no"})
+    with pytest.raises(FatalRequest):
+        T.parse(call(), ns(invalid))
