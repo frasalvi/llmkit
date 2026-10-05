@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from .clients import SdkClients, make_clients
 from .credentials import credentials_for, load_env
 from .errors import SchemaError, UnsupportedFeature
+from .ledger import current_ledger
 from .pricing import compute_cost, load_table, resolve_rates, warn_unpriced
 from .records import Hook, build_record
 from .registry import check_effort, resolve
@@ -148,6 +149,17 @@ class LLM:
         """
         return compute_cost(usage, self.rates)
 
+    def _admit(self) -> None:
+        """Ask the active query's budget, if any, to allow one request.
+
+        Raises:
+            BudgetExceeded: If the budget is spent, or this model has no price under a
+                cap.
+        """
+        ledger = current_ledger()
+        if ledger is not None:
+            ledger.admit(priced=self.rates is not None, model=self.model)
+
     def _prepare(
         self,
         prompt: Prompt,
@@ -227,8 +239,12 @@ class LLM:
         attempts: int,
         latency_ms: int,
         tags: Mapping[str, Any] | None,
+        *,
+        cache: str | None = None,
+        sample: int = 0,
+        cache_attempts: int | None = None,
     ) -> None:
-        """Hand a record to every hook; hook exceptions propagate.
+        """Hand a record to the active ledger and every hook; hook exceptions propagate.
 
         Args:
             call: The request.
@@ -237,8 +253,12 @@ class LLM:
             attempts: Attempts made.
             latency_ms: Wall-clock duration.
             tags: Labels for this call, merged over the instance's.
+            cache: ``hit``, ``miss`` or ``retry`` when a cache was used.
+            sample: The sample index.
+            cache_attempts: Outcomes stored under the key after this call.
         """
-        if not self._hooks:
+        ledger = current_ledger()
+        if not self._hooks and ledger is None:
             return
         record = build_record(
             call,
@@ -247,7 +267,12 @@ class LLM:
             attempts=attempts,
             latency_ms=latency_ms,
             tags={**self._tags, **(tags or {})},
+            cache=cache,
+            sample=sample,
+            cache_attempts=cache_attempts,
         )
+        if ledger is not None:
+            ledger.add(record)
         for hook in self._hooks:
             hook(record)
 
@@ -346,12 +371,14 @@ class LLM:
 
         Raises:
             LLMKitError: Any llmkit error; see :mod:`llmkit.errors`.
+            BudgetExceeded: If an active query's max_cost does not allow the request.
         """
         call = self._prepare(
             prompt, system, effort, max_tokens, temperature, top_p,
             cache_prefix, tools, tool_choice, schema,
         )  # fmt: skip
         body = self._transport.build(call)
+        self._admit()
         started = time.monotonic()
 
         def attempt() -> Reply:
@@ -409,12 +436,14 @@ class LLM:
 
         Raises:
             LLMKitError: Any llmkit error; see :mod:`llmkit.errors`.
+            BudgetExceeded: If an active query's max_cost does not allow the request.
         """
         call = self._prepare(
             prompt, system, effort, max_tokens, temperature, top_p,
             cache_prefix, tools, tool_choice, schema,
         )  # fmt: skip
         body = self._transport.build(call)
+        self._admit()
         started = time.monotonic()
 
         async def attempt() -> Reply:
@@ -524,6 +553,7 @@ class LLM:
             cache_prefix, tools, tool_choice, schema,
         )  # fmt: skip
         body = self._transport.build(call)
+        self._admit()
         started = time.monotonic()
         attempt = 0
         while True:
@@ -586,6 +616,7 @@ class LLM:
             cache_prefix, tools, tool_choice, schema,
         )  # fmt: skip
         body = self._transport.build(call)
+        self._admit()
         started = time.monotonic()
         attempt = 0
         while True:
