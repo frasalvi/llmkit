@@ -166,3 +166,29 @@ def test_prompt_cache(llm):
             )
         )
     assert result.usage.cached_input_tokens > 0
+
+
+def test_query_replays_from_cache(tmp_path):
+    from llmkit import Cache, query
+
+    try:
+        llm = LLM(
+            "gpt-5.6-luna",
+            cache=Cache(tmp_path / "cache" / "calls.sqlite"),
+            max_retries=2,
+            timeout=180,
+        )
+    except MissingCredential as exc:
+        pytest.skip(str(exc))
+    items = [{"id": "a", "q": "Say yes."}, {"id": "b", "q": "Say no."}]
+
+    def fn(item):
+        return guarded(lambda: llm.complete(item["q"], max_tokens=200)).text
+
+    out = tmp_path / "runs" / "r.jsonl"
+    first = query(items, fn, key=lambda it: it["id"], out=out, progress=False)
+    before = out.read_text(encoding="utf-8")
+    second = query(items, fn, key=lambda it: it["id"], out=out, progress=False)
+    assert first.ok == 2 and first.new_cost > 0
+    assert second.new_calls == 0 and second.new_cost == 0
+    assert out.read_text(encoding="utf-8") == before

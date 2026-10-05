@@ -53,3 +53,10 @@ def test_usage_add_pools_and_poisons_cost():
     assert total.cache_write_tokens == 1 and total.latency_ms == 110
     assert total.cost == 0.75 and total.effort == "low"
     assert (a + Usage(cost=None)).cost is None
+
+
+def test_batch_names_are_public():
+    import llmkit
+
+    for name in ("BudgetExceeded", "Cache", "Report", "aquery", "query"):
+        assert name in llmkit.__all__ and hasattr(llmkit, name)
