@@ -215,3 +215,18 @@ def test_state_from_another_transport_is_not_replayed():
     msgs = [Message.user("q"), Message("assistant", "earlier", provider_state=state)]
     items = T.build(call(messages=msgs))["input"]
     assert items[1] == {"role": "assistant", "content": "earlier"}
+
+
+def test_failed_stream_message_excludes_the_echoed_response():
+    failed = {
+        "type": "response.failed",
+        "response": {
+            "instructions": "SECRET-SYSTEM-PROMPT",
+            "output": [{"partial": "SECRET-OUTPUT"}],
+            "error": {"code": "server_error", "message": "boom"},
+        },
+    }
+    with pytest.raises(TransientError) as info:
+        T.translator(call()).feed(ns(failed))
+    text = str(info.value)
+    assert "SECRET" not in text and "server_error" in text and "boom" in text
