@@ -20,9 +20,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from .cache import HIT, Cache, Entry, Lookup, request_key
 from .clients import SdkClients, make_clients
 from .credentials import credentials_for, load_env
-from .errors import SchemaError, UnsupportedFeature
+from .errors import ContentFiltered, SchemaError, UnsupportedFeature
 from .ledger import current_ledger
 from .pricing import compute_cost, load_table, resolve_rates, warn_unpriced
 from .records import Hook, build_record
@@ -70,6 +71,7 @@ class LLM:
         timeout: float = 600.0,
         on_call: Hook | list[Hook] | None = None,
         tags: Mapping[str, Any] | None = None,
+        cache: Cache | None = None,
         env_file: Path | None = None,
         clients: SdkClients | None = None,
         env: Mapping[str, str] | None = None,
@@ -87,6 +89,8 @@ class LLM:
             timeout: Per-attempt timeout in seconds.
             on_call: Hook or hooks receiving a record after every call.
             tags: Labels added to every record.
+            cache: Stores every outcome so identical calls replay; see
+                :class:`llmkit.Cache`.
             env_file: A specific ``.env``; the nearest one is used when omitted.
             clients: Pre-built SDK clients, for tests.
             env: Variables to use instead of loading them, for tests.
@@ -102,6 +106,7 @@ class LLM:
         self.route = resolve(model, provider)
         self.max_retries = max_retries
         self.timeout = timeout
+        self.cache = cache
         if on_call is None:
             self._hooks: list[Hook] = []
         elif isinstance(on_call, list):
@@ -276,30 +281,16 @@ class LLM:
         for hook in self._hooks:
             hook(record)
 
-    def _finish(
-        self,
-        call: Call,
-        reply: Reply,
-        attempts: int,
-        latency_ms: int,
-        schema: Schema | None,
-        tags: Mapping[str, Any] | None,
-    ) -> Result:
-        """Price a reply, parse structured output, record the call.
+    def _usage(self, call: Call, reply: Reply, latency_ms: int) -> Usage:
+        """Price a reply at this model's list rates.
 
         Args:
             call: The request.
             reply: The transport's parsed reply.
-            attempts: Attempts made.
             latency_ms: Wall-clock duration.
-            schema: The requested output schema, or ``None``.
-            tags: Labels for this call's record.
 
         Returns:
-            The result.
-
-        Raises:
-            SchemaError: If structured output does not validate (after recording).
+            The usage.
         """
         usage = Usage(
             model=reply.served_model or self.model,
@@ -313,28 +304,400 @@ class LLM:
         )
         # Zero counts from a reply without usage mean unknown, not free.
         usage.cost = compute_cost(usage, self.rates) if reply.usage_reported else None
+        return usage
+
+    def _result(self, reply: Reply, usage: Usage, cache: str | None) -> Result:
+        """Build the caller's result from a reply.
+
+        Args:
+            reply: The transport's parsed reply.
+            usage: Its usage.
+            cache: ``hit``, ``miss`` or ``retry``, or ``None`` without a cache.
+
+        Returns:
+            The result, before structured-output parsing.
+        """
         message = Message(
             ROLE_ASSISTANT,
             reply.text,
             tool_calls=list(reply.tool_calls),
             provider_state=reply.provider_state,
         )
-        result = Result(
+        return Result(
             text=reply.text,
             thinking=reply.thinking,
             tool_calls=list(reply.tool_calls),
             stop_reason=reply.stop_reason,
             usage=usage,
             message=message,
+            cache=cache,
         )
-        if schema is not None and reply.stop_reason != STOP_TOOL_USE:
+
+    def _deliver(
+        self,
+        call: Call,
+        result: Result,
+        attempts: int,
+        latency_ms: int,
+        schema: Schema | None,
+        tags: Mapping[str, Any] | None,
+        *,
+        sample: int = 0,
+        cache_attempts: int | None = None,
+    ) -> Result:
+        """Parse structured output and record the call.
+
+        Args:
+            call: The request.
+            result: The result.
+            attempts: Attempts made.
+            latency_ms: Wall-clock duration.
+            schema: The requested output schema, or ``None``.
+            tags: Labels for this call's record.
+            sample: The sample index.
+            cache_attempts: Outcomes stored under the key, or ``None`` without a cache.
+
+        Returns:
+            The result.
+
+        Raises:
+            SchemaError: If structured output does not validate (after recording).
+        """
+        cached: dict[str, Any] = {
+            "cache": result.cache,
+            "sample": sample,
+            "cache_attempts": cache_attempts,
+        }
+        if schema is not None and result.stop_reason != STOP_TOOL_USE:
             try:
-                result.parsed = parse_output(schema, reply.text)
+                result.parsed = parse_output(schema, result.text)
             except SchemaError as err:
-                self._emit(call, result, err, attempts, latency_ms, tags)
+                self._emit(call, result, err, attempts, latency_ms, tags, **cached)
                 raise
-        self._emit(call, result, None, attempts, latency_ms, tags)
+        self._emit(call, result, None, attempts, latency_ms, tags, **cached)
         return result
+
+    def _finish(
+        self,
+        call: Call,
+        reply: Reply,
+        attempts: int,
+        latency_ms: int,
+        schema: Schema | None,
+        tags: Mapping[str, Any] | None,
+    ) -> Result:
+        """Price, parse and record an uncached reply.
+
+        Args:
+            call: The request.
+            reply: The transport's parsed reply.
+            attempts: Attempts made.
+            latency_ms: Wall-clock duration.
+            schema: The requested output schema, or ``None``.
+            tags: Labels for this call's record.
+
+        Returns:
+            The result.
+        """
+        result = self._result(reply, self._usage(call, reply, latency_ms), None)
+        return self._deliver(call, result, attempts, latency_ms, schema, tags)
+
+    def _check_sample(self, sample: int) -> int:
+        """Validate a sample index.
+
+        Args:
+            sample: The requested index.
+
+        Returns:
+            *sample*.
+
+        Raises:
+            ValueError: If it is negative, or nonzero without a cache.
+        """
+        if sample < 0:
+            raise ValueError("sample must be 0 or more")
+        if sample and self.cache is None:
+            raise ValueError("sample needs a cache: LLM(..., cache=Cache(path))")
+        return sample
+
+    def _attempts(self, call: Call) -> tuple[Reply, int]:
+        """Send with llmkit's retry policy, blocking.
+
+        Args:
+            call: The request.
+
+        Returns:
+            The reply and the attempts made.
+        """
+        body = self._transport.build(call)
+
+        def attempt() -> Reply:
+            """Make one blocking attempt and parse the response."""
+            raw = self._transport.send(self._clients.sync, body)
+            return self._transport.parse(call, raw)
+
+        return call_with_retries(
+            attempt,
+            provider=self.provider,
+            max_retries=self.max_retries,
+            sleep=self._sleep,
+            rng=self._rng,
+        )
+
+    async def _aattempts(self, call: Call) -> tuple[Reply, int]:
+        """Async counterpart of :meth:`_attempts`.
+
+        Args:
+            call: The request.
+
+        Returns:
+            The reply and the attempts made.
+        """
+        body = self._transport.build(call)
+
+        async def attempt() -> Reply:
+            """Make one async attempt and parse the response."""
+            raw = await self._transport.asend(self._clients.async_, body)
+            return self._transport.parse(call, raw)
+
+        return await acall_with_retries(
+            attempt,
+            provider=self.provider,
+            max_retries=self.max_retries,
+            sleep=self._asleep,
+            rng=self._rng,
+        )
+
+    def _replay(
+        self,
+        call: Call,
+        entry: Entry,
+        schema: Schema | None,
+        tags: Mapping[str, Any] | None,
+        sample: int,
+        started: float,
+    ) -> Result:
+        """Serve a stored outcome without sending anything.
+
+        Args:
+            call: The request.
+            entry: The stored outcome.
+            schema: The requested output schema, or ``None``.
+            tags: Labels for this call's record.
+            sample: The sample index.
+            started: ``time.monotonic`` value when the call began.
+
+        Returns:
+            The result, with ``cost`` 0 and ``replayed_cost`` the original cost.
+
+        Raises:
+            ContentFiltered: If the stored outcome is a blocked prompt.
+            SchemaError: If the stored reply does not match *schema*.
+        """
+        latency = _elapsed_ms(started)
+        if entry.filtered is not None:
+            self._emit(
+                call, None, entry.filtered, 0, latency, tags,
+                cache=HIT, sample=sample, cache_attempts=entry.count,
+            )  # fmt: skip
+            raise entry.filtered
+        assert entry.reply is not None
+        usage = self._usage(call, entry.reply, latency)
+        usage.cost, usage.replayed_cost = 0.0, entry.cost
+        result = self._result(entry.reply, usage, HIT)
+        return self._deliver(
+            call, result, 0, latency, schema, tags,
+            sample=sample, cache_attempts=entry.count,
+        )  # fmt: skip
+
+    def _store(
+        self,
+        cache: Cache,
+        call: Call,
+        lookup: Lookup,
+        reply: Reply,
+        attempts: int,
+        schema: Schema | None,
+        tags: Mapping[str, Any] | None,
+        sample: int,
+        started: float,
+    ) -> Result:
+        """Store a fresh reply and return it, or the outcome another process stored first.
+
+        Args:
+            cache: The cache.
+            call: The request.
+            lookup: The decision the request was sent under.
+            reply: The fresh reply.
+            attempts: Attempts made.
+            schema: The requested output schema, or ``None``.
+            tags: Labels for this call's record.
+            sample: The sample index.
+            started: ``time.monotonic`` value when the call began.
+
+        Returns:
+            The result.
+        """
+        latency = _elapsed_ms(started)
+        usage = self._usage(call, reply, latency)
+        entry, won = cache.store_reply(lookup, self.model, reply, usage.cost)
+        result = self._result(reply, usage, lookup.status)
+        if won:
+            return self._deliver(
+                call, result, attempts, latency, schema, tags,
+                sample=sample, cache_attempts=entry.count,
+            )  # fmt: skip
+        # Another process stored first: record this call's spend, serve the stored one.
+        self._emit(
+            call, result, None, attempts, latency, tags,
+            cache=lookup.status, sample=sample, cache_attempts=entry.count,
+        )  # fmt: skip
+        return self._replay(call, entry, schema, tags, sample, started)
+
+    def _store_filtered(
+        self,
+        cache: Cache,
+        call: Call,
+        lookup: Lookup,
+        err: ContentFiltered,
+        schema: Schema | None,
+        tags: Mapping[str, Any] | None,
+        sample: int,
+        started: float,
+    ) -> Result:
+        """Store a blocked prompt and raise it, or serve what another process stored.
+
+        Args:
+            cache: The cache.
+            call: The request.
+            lookup: The decision the request was sent under.
+            err: The filter error.
+            schema: The requested output schema, or ``None``.
+            tags: Labels for this call's record.
+            sample: The sample index.
+            started: ``time.monotonic`` value when the call began.
+
+        Returns:
+            The outcome another process stored first.
+
+        Raises:
+            ContentFiltered: *err*, when it is the stored outcome.
+        """
+        entry, won = cache.store_filtered(lookup, self.model, err)
+        self._emit(
+            call, None, err, err.attempts, _elapsed_ms(started), tags,
+            cache=lookup.status, sample=sample, cache_attempts=entry.count,
+        )  # fmt: skip
+        if won:
+            raise err
+        return self._replay(call, entry, schema, tags, sample, started)
+
+    def _fail(
+        self,
+        call: Call,
+        lookup: Lookup,
+        err: Exception,
+        tags: Mapping[str, Any] | None,
+        sample: int,
+        started: float,
+    ) -> None:
+        """Record a failed cached call; nothing is stored.
+
+        Args:
+            call: The request.
+            lookup: The decision the request was sent under.
+            err: The failure.
+            tags: Labels for this call's record.
+            sample: The sample index.
+            started: ``time.monotonic`` value when the call began.
+        """
+        self._emit(
+            call, None, err, getattr(err, "attempts", 1), _elapsed_ms(started), tags,
+            cache=lookup.status, sample=sample,
+            cache_attempts=lookup.entry.count if lookup.entry else 0,
+        )  # fmt: skip
+
+    def _complete_cached(
+        self,
+        cache: Cache,
+        call: Call,
+        sample: int,
+        schema: Schema | None,
+        tags: Mapping[str, Any] | None,
+    ) -> Result:
+        """Replay, retry or send one call through *cache*, blocking.
+
+        Args:
+            cache: The cache.
+            call: The request.
+            sample: The sample index.
+            schema: The requested output schema, or ``None``.
+            tags: Labels for this call's record.
+
+        Returns:
+            The result.
+        """
+        key = request_key(call, sample)
+        started = time.monotonic()
+        with cache.locked(key):
+            lookup = cache.lookup(key)
+            if lookup.status == HIT:
+                assert lookup.entry is not None
+                return self._replay(call, lookup.entry, schema, tags, sample, started)
+            self._admit()
+            try:
+                reply, attempts = self._attempts(call)
+            except ContentFiltered as err:
+                return self._store_filtered(
+                    cache, call, lookup, err, schema, tags, sample, started
+                )
+            except Exception as err:
+                self._fail(call, lookup, err, tags, sample, started)
+                raise
+            return self._store(
+                cache, call, lookup, reply, attempts, schema, tags, sample, started
+            )
+
+    async def _acomplete_cached(
+        self,
+        cache: Cache,
+        call: Call,
+        sample: int,
+        schema: Schema | None,
+        tags: Mapping[str, Any] | None,
+    ) -> Result:
+        """Async counterpart of :meth:`_complete_cached`.
+
+        Args:
+            cache: The cache.
+            call: The request.
+            sample: The sample index.
+            schema: The requested output schema, or ``None``.
+            tags: Labels for this call's record.
+
+        Returns:
+            The result.
+        """
+        key = request_key(call, sample)
+        started = time.monotonic()
+        async with cache.alocked(key):
+            lookup = cache.lookup(key)
+            if lookup.status == HIT:
+                assert lookup.entry is not None
+                return self._replay(call, lookup.entry, schema, tags, sample, started)
+            self._admit()
+            try:
+                reply, attempts = await self._aattempts(call)
+            except ContentFiltered as err:
+                return self._store_filtered(
+                    cache, call, lookup, err, schema, tags, sample, started
+                )
+            except Exception as err:
+                self._fail(call, lookup, err, tags, sample, started)
+                raise
+            return self._store(
+                cache, call, lookup, reply, attempts, schema, tags, sample, started
+            )
 
     def complete(
         self,
@@ -349,6 +712,7 @@ class LLM:
         tools: list[Tool] | None = None,
         tool_choice: str | None = None,
         schema: Schema | None = None,
+        sample: int = 0,
         tags: Mapping[str, Any] | None = None,
     ) -> Result:
         """Make one non-streaming call.
@@ -364,6 +728,7 @@ class LLM:
             tools: Tools the model may call.
             tool_choice: ``auto``, ``none``, ``required`` or a tool name.
             schema: A Pydantic model or JSON schema for structured output.
+            sample: Which independent sample of this request to return; needs a cache.
             tags: Labels for this call's record.
 
         Returns:
@@ -372,28 +737,19 @@ class LLM:
         Raises:
             LLMKitError: Any llmkit error; see :mod:`llmkit.errors`.
             BudgetExceeded: If an active query's max_cost does not allow the request.
+            ValueError: If sample is negative, or nonzero without a cache.
         """
+        self._check_sample(sample)
         call = self._prepare(
             prompt, system, effort, max_tokens, temperature, top_p,
             cache_prefix, tools, tool_choice, schema,
         )  # fmt: skip
-        body = self._transport.build(call)
+        if self.cache is not None:
+            return self._complete_cached(self.cache, call, sample, schema, tags)
         self._admit()
         started = time.monotonic()
-
-        def attempt() -> Reply:
-            """Make one blocking attempt and parse the response."""
-            raw = self._transport.send(self._clients.sync, body)
-            return self._transport.parse(call, raw)
-
         try:
-            reply, attempts = call_with_retries(
-                attempt,
-                provider=self.provider,
-                max_retries=self.max_retries,
-                sleep=self._sleep,
-                rng=self._rng,
-            )
+            reply, attempts = self._attempts(call)
         except Exception as err:
             self._emit(
                 call, None, err, getattr(err, "attempts", 1), _elapsed_ms(started), tags
@@ -414,6 +770,7 @@ class LLM:
         tools: list[Tool] | None = None,
         tool_choice: str | None = None,
         schema: Schema | None = None,
+        sample: int = 0,
         tags: Mapping[str, Any] | None = None,
     ) -> Result:
         """Async counterpart of :meth:`complete`; same arguments and result.
@@ -429,6 +786,7 @@ class LLM:
             tools: Tools the model may call.
             tool_choice: ``auto``, ``none``, ``required`` or a tool name.
             schema: A Pydantic model or JSON schema for structured output.
+            sample: Which independent sample of this request to return; needs a cache.
             tags: Labels for this call's record.
 
         Returns:
@@ -437,28 +795,19 @@ class LLM:
         Raises:
             LLMKitError: Any llmkit error; see :mod:`llmkit.errors`.
             BudgetExceeded: If an active query's max_cost does not allow the request.
+            ValueError: If sample is negative, or nonzero without a cache.
         """
+        self._check_sample(sample)
         call = self._prepare(
             prompt, system, effort, max_tokens, temperature, top_p,
             cache_prefix, tools, tool_choice, schema,
         )  # fmt: skip
-        body = self._transport.build(call)
+        if self.cache is not None:
+            return await self._acomplete_cached(self.cache, call, sample, schema, tags)
         self._admit()
         started = time.monotonic()
-
-        async def attempt() -> Reply:
-            """Make one async attempt and parse the response."""
-            raw = await self._transport.asend(self._clients.async_, body)
-            return self._transport.parse(call, raw)
-
         try:
-            reply, attempts = await acall_with_retries(
-                attempt,
-                provider=self.provider,
-                max_retries=self.max_retries,
-                sleep=self._asleep,
-                rng=self._rng,
-            )
+            reply, attempts = await self._aattempts(call)
         except Exception as err:
             self._emit(
                 call, None, err, getattr(err, "attempts", 1), _elapsed_ms(started), tags
@@ -548,6 +897,10 @@ class LLM:
         Raises:
             LLMKitError: Any llmkit error; see :mod:`llmkit.errors`.
         """
+        if self.cache is not None:
+            raise UnsupportedFeature(
+                "stream does not use the cache; call complete or acomplete"
+            )
         call = self._prepare(
             prompt, system, effort, max_tokens, temperature, top_p,
             cache_prefix, tools, tool_choice, schema,
@@ -611,6 +964,10 @@ class LLM:
         Raises:
             LLMKitError: Any llmkit error; see :mod:`llmkit.errors`.
         """
+        if self.cache is not None:
+            raise UnsupportedFeature(
+                "stream does not use the cache; call complete or acomplete"
+            )
         call = self._prepare(
             prompt, system, effort, max_tokens, temperature, top_p,
             cache_prefix, tools, tool_choice, schema,
