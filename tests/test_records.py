@@ -119,3 +119,28 @@ def test_read_skips_torn_last_line_only(tmp_path):
     path.write_text('{"a": \n' + json.dumps({"a": 1}) + "\n")
     with pytest.raises(ValueError, match="line 1"):
         read(path)
+
+
+def test_append_after_a_crash_drops_the_torn_line(tmp_path):
+    path = tmp_path / "calls.jsonl"
+    record = build_record(
+        make_call(), result=make_result(), error=None, attempts=1, latency_ms=1, tags={}
+    )
+    JsonlLog(path)(record)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"call_id": "torn')
+    restarted = JsonlLog(path)
+    restarted(record)
+    restarted(record)
+    rows = read(path)
+    assert len(rows) == 3 and all(row["model"] == "glm-5.3" for row in rows)
+
+
+def test_append_to_a_file_that_is_one_torn_line(tmp_path):
+    path = tmp_path / "calls.jsonl"
+    path.write_text('{"call_id": "torn', encoding="utf-8")
+    record = build_record(
+        make_call(), result=make_result(), error=None, attempts=1, latency_ms=1, tags={}
+    )
+    JsonlLog(path)(record)
+    assert len(read(path)) == 1
