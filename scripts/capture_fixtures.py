@@ -38,7 +38,9 @@ def write(llm: LLM, kind: str, payload: dict[str, Any]) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     name = f"{llm.model}__{llm.provider}__{kind}.json".replace("/", "_")
     record = {"model": llm.model, "provider": llm.provider, "kind": kind, **payload}
-    (folder / name).write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
+    (folder / name).write_text(
+        json.dumps(record, indent=1) + "\n", encoding="utf-8", newline="\n"
+    )
 
 
 def capture(model: str, provider: str | None) -> None:
