@@ -16,7 +16,7 @@ from collections.abc import AsyncIterable, Iterable
 from types import SimpleNamespace
 from typing import Any
 
-from ..errors import ContentFiltered
+from ..errors import ContentFiltered, TransientError
 from ..types import (
     ROLE_ASSISTANT,
     ROLE_TOOL,
@@ -50,6 +50,8 @@ FILTERED = frozenset(
         "MODEL_ARMOR",
     }
 )
+# The model emitted a tool call that cannot be used: a failed sample, not a reply.
+FAILED_SAMPLE = frozenset({"MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"})
 GENERATED_ID = "llmkit-"
 
 
@@ -289,6 +291,7 @@ class GeminiTransport:
 
         Raises:
             ContentFiltered: If Vertex blocked the prompt and returned no candidate.
+            TransientError: If the model produced an unusable tool call.
         """
         candidates = getattr(raw, "candidates", None) or []
         if not candidates:
@@ -301,6 +304,11 @@ class GeminiTransport:
                 provider=call.route.provider,
             )
         candidate = candidates[0]
+        finish = _enum_name(getattr(candidate, "finish_reason", None))
+        if finish in FAILED_SAMPLE:
+            raise TransientError(
+                f"Gemini finished with {finish}", provider=call.route.provider
+            )
         content = getattr(candidate, "content", None)
         texts: list[str] = []
         thoughts: list[str] = []
@@ -323,7 +331,6 @@ class GeminiTransport:
             if text:
                 (thoughts if getattr(part, "thought", None) else texts).append(text)
         # Stop reason.
-        finish = _enum_name(getattr(candidate, "finish_reason", None))
         stop = STOP_TOOL_USE if calls else STOP_END
         if finish == "MAX_TOKENS":
             stop = STOP_MAX_TOKENS

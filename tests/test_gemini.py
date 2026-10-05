@@ -1,6 +1,6 @@
 import pytest
 
-from llmkit.errors import ContentFiltered
+from llmkit.errors import ContentFiltered, TransientError
 from llmkit.registry import resolve
 from llmkit.transports.base import Call, ns
 from llmkit.transports.gemini import GeminiTransport
@@ -237,3 +237,14 @@ def test_null_tool_arguments_survive_parse_and_replay():
     assert reply.provider_state.data["parts"][0]["function_call"]["args"] == {
         "limit": None
     }
+
+
+@pytest.mark.parametrize("finish", ["MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL"])
+def test_unusable_tool_call_is_a_retryable_failure(finish):
+    failed = {"finish_reason": finish, "content": {"role": "model", "parts": []}}
+    with pytest.raises(TransientError, match=finish):
+        T.parse(call(), ns(dict(RESPONSE, candidates=[failed])))
+    tr = T.translator(call())
+    tr.feed(ns({"candidates": [failed]}))
+    with pytest.raises(TransientError, match=finish):
+        tr.finish()
