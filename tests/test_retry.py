@@ -190,3 +190,50 @@ def test_retry_after_is_capped_and_clamped():
         is None
     )
     assert retry_delay(TransientError("x", retry_after=600.0), 1, 3, lambda: 0.5) == 60.0
+
+
+def _sse_status_error(body):
+    request = httpx.Request("POST", "https://example.test/v1/messages")
+    response = httpx.Response(200, request=request)
+    return anthropic.APIStatusError("stream error", response=response, body=body)
+
+
+def test_classify_anthropic_sse_error_events():
+    overloaded = _sse_status_error(
+        {"type": "error", "error": {"type": "overloaded_error", "message": "busy"}}
+    )
+    assert isinstance(classify(overloaded, "foundry"), TransientError)
+    invalid = _sse_status_error(
+        {"type": "error", "error": {"type": "invalid_request_error", "message": "bad"}}
+    )
+    assert isinstance(classify(invalid, "foundry"), FatalRequest)
+
+
+def test_classify_chat_stream_error_chunk():
+    request = httpx.Request("POST", "https://example.test/v1/chat/completions")
+    busy = openai.APIError("busy", request, body={"code": "rate_limit_exceeded"})
+    assert isinstance(classify(busy, "openrouter"), TransientError)
+    bad = openai.APIError("bad", request, body={"code": "invalid_prompt"})
+    assert isinstance(classify(bad, "openrouter"), FatalRequest)
+    assert isinstance(
+        classify(openai.APIError("x", request, body=None), "openrouter"), FatalRequest
+    )
+
+
+def test_classify_builtin_timeout_and_google_auth_transport():
+    from google.auth import exceptions as auth_exceptions
+
+    assert isinstance(classify(TimeoutError("slow"), "vertex"), RequestTimeout)
+    assert isinstance(
+        classify(auth_exceptions.TransportError("net"), "vertex"), TransientError
+    )
+
+
+def test_classify_aiohttp_errors_when_installed(monkeypatch):
+    import llmkit.retry as retry_module
+
+    class FakeClientError(Exception):
+        pass
+
+    monkeypatch.setattr(retry_module, "_AIOHTTP_ERRORS", (FakeClientError,))
+    assert isinstance(classify(FakeClientError("reset"), "vertex"), TransientError)
