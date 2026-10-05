@@ -154,7 +154,10 @@ MODELS: dict[str, ModelSpec] = {
         effort_style="chat_reasoning",
     ),
     "glm-5.3": ModelSpec(
-        routes={"foundry": "FW-GLM-5.3"}, default="foundry", effort_style="chat_reasoning"
+        routes={"foundry": "FW-GLM-5.3"},
+        default="foundry",
+        effort_style="chat_reasoning",
+        efforts=("low", "medium", "high"),
     ),
     "kimi-k3": ModelSpec(
         routes={"foundry": "FW-Kimi-K3"}, default="foundry", effort_style="chat_reasoning"
