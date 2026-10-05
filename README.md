@@ -148,8 +148,10 @@ print(report)  # 412 ok · 3 failed · $1.84 new · $9.10 replayed
   run that replays everything writes the same file. `runs/interviews.meta.json` beside
   it holds the git commit, llmkit version, counts, new and replayed spend, and served-model
   drift. An interrupted run leaves the previous file untouched.
-- **Spending and trials.** `max_cost` caps this run's new spend; replays are always
-  served. `limit=N` tries the first N items and writes nothing.
+- **Spending and trials.** `max_cost` caps this run's new spend: once it is reached no
+  new request is sent, though requests already in flight finish and can take the total
+  past it. Replays are always served. `limit=N` tries the first N items and writes
+  nothing.
 - **Async and streaming.** `aquery` is the same for code already inside an event loop.
   `stream` does not use the cache.
 - **Privacy.** A cache is local: llmkit puts a `.gitignore` in the folder it creates
