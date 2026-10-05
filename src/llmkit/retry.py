@@ -9,6 +9,7 @@ with full jitter. With retries attempted and all failed, the last error is wrapp
 
 from __future__ import annotations
 
+import importlib
 import math
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, NoReturn, TypeVar
@@ -16,6 +17,7 @@ from typing import Any, NoReturn, TypeVar
 import anthropic
 import httpx
 import openai
+from google.auth import exceptions as auth_exceptions
 from google.genai import errors as genai_errors
 
 from .errors import (
@@ -32,6 +34,32 @@ T = TypeVar("T")
 MAX_BACKOFF = 60.0
 BASE_BACKOFF = 1.0
 _TRANSIENT_STATUSES = frozenset({408, 429})
+_TRANSIENT_KINDS = frozenset(
+    {
+        "overloaded_error",
+        "overloaded",
+        "api_error",
+        "server_error",
+        "service_unavailable_error",
+        "rate_limit_error",
+        "rate_limit_exceeded",
+        "timeout_error",
+        "timeout",
+    }
+)
+
+
+def _optional_errors(module: str, name: str) -> tuple[type[BaseException], ...]:
+    """Return an optional dependency's exception class as a tuple, or ``()`` if absent."""
+    try:
+        return (getattr(importlib.import_module(module), name),)
+    except ImportError:
+        return ()
+
+
+# google-genai's async client uses aiohttp when it is installed, so its network
+# errors must classify like httpx's.
+_AIOHTTP_ERRORS = _optional_errors("aiohttp", "ClientError")
 
 
 def _retry_after(headers: Mapping[str, str] | None) -> float | None:
@@ -91,6 +119,40 @@ def _from_status(
     return FatalRequest(message, **fields)
 
 
+def _error_kind(body: Any) -> str | None:
+    """Return the ``type`` or ``code`` of an error body, lower-cased."""
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error", body)
+    if not isinstance(error, dict):
+        return None
+    kind = error.get("type") or error.get("code")
+    return kind.lower() if isinstance(kind, str) else None
+
+
+def _from_error_body(
+    message: str,
+    body: Any,
+    *,
+    provider: str,
+    status: int | None = None,
+    request_id: str | None = None,
+) -> RequestError:
+    """Map an error delivered inside a stream (no real HTTP failure) by its body type."""
+    fields: dict[str, Any] = {
+        "provider": provider,
+        "status": status,
+        "request_id": request_id,
+        "body": body,
+    }
+    categories = _filtered_categories(body)
+    if categories is not None:
+        return ContentFiltered(message, categories=categories, **fields)
+    if _error_kind(body) in _TRANSIENT_KINDS:
+        return TransientError(message, **fields)
+    return FatalRequest(message, **fields)
+
+
 def classify(exc: BaseException, provider: str) -> RequestError:
     """Translate an SDK or transport exception into llmkit's hierarchy.
 
@@ -108,15 +170,31 @@ def classify(exc: BaseException, provider: str) -> RequestError:
     if isinstance(exc, RequestError):
         return exc
     if isinstance(
-        exc, openai.APITimeoutError | anthropic.APITimeoutError | httpx.TimeoutException
+        exc,
+        openai.APITimeoutError
+        | anthropic.APITimeoutError
+        | httpx.TimeoutException
+        | TimeoutError,
     ):
         return RequestTimeout(str(exc) or "request timed out", provider=provider)
     if isinstance(
         exc,
-        openai.APIConnectionError | anthropic.APIConnectionError | httpx.TransportError,
-    ):
+        openai.APIConnectionError
+        | anthropic.APIConnectionError
+        | httpx.TransportError
+        | auth_exceptions.TransportError,
+    ) or (_AIOHTTP_ERRORS and isinstance(exc, _AIOHTTP_ERRORS)):
         return TransientError(f"connection error: {exc}", provider=provider)
     if isinstance(exc, openai.APIStatusError | anthropic.APIStatusError):
+        if exc.status_code < 400:
+            # An SSE error event: the stream's HTTP status was 200.
+            return _from_error_body(
+                str(exc),
+                exc.body,
+                provider=provider,
+                status=exc.status_code,
+                request_id=exc.request_id,
+            )
         return _from_status(
             str(exc),
             exc.status_code,
@@ -124,6 +202,13 @@ def classify(exc: BaseException, provider: str) -> RequestError:
             body=exc.body,
             request_id=exc.request_id,
             headers=exc.response.headers,
+        )
+    if isinstance(exc, openai.APIError | anthropic.APIError):
+        return _from_error_body(
+            exc.message,
+            exc.body,
+            provider=provider,
+            request_id=getattr(exc, "request_id", None),
         )
     if isinstance(exc, genai_errors.APIError):
         return _from_status(
