@@ -1,3 +1,6 @@
+import pytest
+
+from llmkit.errors import TransientError
 from llmkit.registry import resolve
 from llmkit.transports import TRANSPORTS
 from llmkit.transports.base import Call, ns
@@ -191,3 +194,10 @@ def test_translator_accumulates_tool_call_fragments():
     assert reply.tool_calls[0].arguments == {"city": "Rome"}
     assert reply.tool_calls[0].raw == '{"city": "Rome"}'
     assert (reply.text, reply.input_tokens) == ("Hi", 60)
+
+
+def test_translator_truncated_stream_raises():
+    tr = T.translator(call())
+    tr.feed(ns({"choices": [{"delta": {"content": "Hi"}}]}))
+    with pytest.raises(TransientError):
+        tr.finish()

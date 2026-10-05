@@ -1,6 +1,6 @@
 import pytest
 
-from llmkit.errors import FatalRequest
+from llmkit.errors import FatalRequest, TransientError
 from llmkit.registry import resolve
 from llmkit.transports.base import Call, ns
 from llmkit.transports.responses import ResponsesTransport
@@ -194,3 +194,24 @@ def test_translator_failed_stream_raises():
     tr = T.translator(call())
     with pytest.raises(FatalRequest):
         tr.feed(ns({"type": "response.failed", "response": {"error": {"message": "x"}}}))
+
+
+def test_translator_transient_failures_are_retryable():
+    failed = {"type": "response.failed", "response": {"error": {"code": "server_error"}}}
+    with pytest.raises(TransientError):
+        T.translator(call()).feed(ns(failed))
+    with pytest.raises(TransientError):
+        T.translator(call()).feed(ns({"type": "error", "code": "rate_limit_exceeded"}))
+    invalid = {
+        "type": "response.failed",
+        "response": {"error": {"code": "invalid_prompt"}},
+    }
+    with pytest.raises(FatalRequest):
+        T.translator(call()).feed(ns(invalid))
+
+
+def test_state_from_another_transport_is_not_replayed():
+    state = ProviderState("anthropic", [{"type": "thinking", "thinking": "x"}])
+    msgs = [Message.user("q"), Message("assistant", "earlier", provider_state=state)]
+    items = T.build(call(messages=msgs))["input"]
+    assert items[1] == {"role": "assistant", "content": "earlier"}

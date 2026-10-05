@@ -184,9 +184,9 @@ class _Translator:
 
     def finish(self) -> Reply:
         """Return the reply. See :class:`llmkit.transports.base.Translator`."""
-        if self._finish is None and not self._text and not self._tools:
+        if self._finish is None:
             raise TransientError(
-                "stream ended without output", provider=self._call.route.provider
+                "stream ended before a finish reason", provider=self._call.route.provider
             )
         message = SimpleNamespace(
             content="".join(self._text) or None,
