@@ -9,7 +9,7 @@ completions on any of the three.
 ## Install
 
 ```bash
-uv add "llmkit @ git+https://github.com/frasalvi/llmkit@v0.1.2"
+uv add "llmkit @ git+https://github.com/frasalvi/llmkit@v0.2.0"
 ```
 
 ## Credentials
@@ -106,6 +106,53 @@ failure. Errors raised before sending (`UnknownModel`, `UnsupportedEffort`, ...)
 streams the caller stops reading early write no record.
 `JsonlLog(path, content=False)` drops prompts and responses. `llmkit.records.read(path)`
 loads a log. Use one log file per process.
+
+## Batch queries
+
+Give an `LLM` a cache and run a function over many items with `query`. Every call is
+stored under a hash of its full request, so a rerun replays finished calls for free and
+the results file is rebuilt from the cache and your current code.
+
+```python
+from llmkit import LLM, Cache, Message, query
+
+cache = Cache(".llmkit/calls.sqlite")
+llm = LLM("gpt-5.6-luna", cache=cache)
+
+
+def interview(item):
+    first = llm.complete(item["question"], sample=item["rep"])
+    follow_up = [Message.user(item["question"]), first.message, Message.user("Why?")]
+    return {"answer": first.text, "why": llm.complete(follow_up, sample=item["rep"]).text}
+
+
+report = query(
+    items,
+    interview,
+    key=lambda it: f"{it['id']}/{it['rep']}",
+    out="runs/interviews.jsonl",
+    max_cost=5.00,
+)
+print(report)  # 412 ok · 3 failed · $1.84 new · $9.10 replayed
+```
+
+- **What the key covers.** The cache key covers the model, the prompt, every setting
+  and `sample`; repeats are `sample=0, 1, 2…`. Keep volatile text such as today's date
+  out of prompts, or nothing will replay.
+- **What is stored.** Every reply is stored, refusals and filtered replies included.
+  `Cache(retry_on=…)` lists the stop reasons asked again on later runs (default
+  `{"max_tokens"}`), up to `max_attempts` outcomes per request (default 3). Errors are
+  never stored.
+- **The results file.** `out` is rewritten in input order when the run finishes, and a
+  run that replays everything writes the same file. `runs/interviews.meta.json` beside
+  it holds the git commit, llmkit version, counts, new and replayed spend, and served-model
+  drift. An interrupted run leaves the previous file untouched.
+- **Spending and trials.** `max_cost` caps this run's new spend; replays are always
+  served. `limit=N` tries the first N items and writes nothing.
+- **Async and streaming.** `aquery` is the same for code already inside an event loop.
+  `stream` does not use the cache.
+- **Privacy.** A cache is local: llmkit puts a `.gitignore` in the folder it creates
+  for it.
 
 ## Development
 

@@ -4,6 +4,8 @@ llmkit: one client for the LLMs the research projects call.
 """
 
 from ._version import __version__
+from .batch import Report, aquery, query
+from .cache import Cache
 from .client import LLM
 from .errors import (
     BudgetExceeded,
@@ -42,6 +44,7 @@ __all__ = [
     "LADDER",
     "LLM",
     "BudgetExceeded",
+    "Cache",
     "CallRecord",
     "ContentFiltered",
     "Done",
@@ -53,6 +56,7 @@ __all__ = [
     "Message",
     "MissingCredential",
     "RequestError",
+    "Report",
     "RequestTimeout",
     "Result",
     "RetriesExhausted",
@@ -70,4 +74,6 @@ __all__ = [
     "UnsupportedFeature",
     "Usage",
     "__version__",
+    "aquery",
+    "query",
 ]

@@ -402,8 +402,8 @@ def query(
         items: The items; read into a list.
         fn: Maps one item to a JSON-serializable result.
         key: Maps an item to its unique string key.
-        out: The results file, rewritten in input order when the run finishes, with
-            metadata beside it in ``<out>.meta.json``.
+        out: The results file, rewritten in input order when the run finishes. The
+            metadata goes beside it, ``r.jsonl`` → ``r.meta.json``.
         concurrency: Items in flight at once.
         max_cost: Cap on this run's new spend in USD; replays are always served.
         limit: Run only the first *limit* items and write nothing.
