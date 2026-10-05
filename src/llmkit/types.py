@@ -201,6 +201,8 @@ class Usage:
         cache_write_tokens: Prompt tokens written to a cache (Anthropic).
         latency_ms: Wall-clock duration including retries.
         cost: USD at list price, or ``None`` when unknown.
+        replayed_cost: On a cache hit, what the replayed reply originally cost;
+            otherwise None.
     """
 
     model: str = ""
@@ -212,6 +214,7 @@ class Usage:
     cache_write_tokens: int = 0
     latency_ms: int = 0
     cost: float | None = None
+    replayed_cost: float | None = None
 
     def __add__(self, other: Usage) -> Usage:
         """Pool two usages; an unpriced side makes the total unpriced.
@@ -223,6 +226,11 @@ class Usage:
             The pooled usage, labelled with *other*'s model, provider and effort.
         """
         cost = None if self.cost is None or other.cost is None else self.cost + other.cost
+        replayed = (
+            None
+            if self.replayed_cost is None and other.replayed_cost is None
+            else (self.replayed_cost or 0.0) + (other.replayed_cost or 0.0)
+        )
         return Usage(
             model=other.model or self.model,
             provider=other.provider or self.provider,
@@ -233,6 +241,7 @@ class Usage:
             cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
             latency_ms=self.latency_ms + other.latency_ms,
             cost=cost,
+            replayed_cost=replayed,
         )
 
 
@@ -248,6 +257,8 @@ class Result:
         usage: Tokens, latency and cost.
         message: The assistant turn to append for the next call.
         parsed: The validated structured output when a schema was requested.
+        cache: ``hit``, ``miss`` or ``retry`` when the call went through a Cache, else
+            None.
     """
 
     text: str
@@ -257,6 +268,7 @@ class Result:
     usage: Usage
     message: Message
     parsed: Any = None
+    cache: str | None = None
 
 
 @dataclass(frozen=True)
