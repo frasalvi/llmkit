@@ -1,6 +1,8 @@
+import anthropic
 import httpx
 import openai
 import pytest
+from google.genai import errors as genai_errors
 from helpers import status_error
 
 from llmkit.errors import (
@@ -138,3 +140,53 @@ async def test_async_retries():
     assert await acall_with_retries(
         fn, provider="foundry", max_retries=1, sleep=no_sleep, rng=lambda: 0.0
     ) == ("ok", 2)
+
+
+def test_classify_genai_errors_with_retry_after():
+    response = httpx.Response(429, headers={"retry-after": "7"})
+    err = classify(
+        genai_errors.ClientError(429, {"error": {"message": "slow"}}, response), "vertex"
+    )
+    assert isinstance(err, TransientError)
+    assert (err.status, err.retry_after, err.provider) == (429, 7.0, "vertex")
+    assert isinstance(
+        classify(genai_errors.ServerError(503, {}, None), "vertex"), TransientError
+    )
+    fatal = classify(
+        genai_errors.ClientError(400, {"error": {"message": "bad"}}, None), "vertex"
+    )
+    assert isinstance(fatal, FatalRequest) and fatal.retry_after is None
+
+
+def test_classify_anthropic_errors():
+    request = httpx.Request("POST", "https://x")
+    response = httpx.Response(529, request=request, headers={"retry-after-ms": "500"})
+    err = classify(
+        anthropic.APIStatusError("overloaded", response=response, body=None), "foundry"
+    )
+    assert isinstance(err, TransientError) and err.retry_after == 0.5
+    assert isinstance(
+        classify(anthropic.APITimeoutError(request), "foundry"), RequestTimeout
+    )
+    assert isinstance(
+        classify(anthropic.APIConnectionError(request=request), "foundry"), TransientError
+    )
+    assert isinstance(classify(httpx.ReadError("reset"), "foundry"), TransientError)
+
+
+def test_retry_after_is_capped_and_clamped():
+    assert (
+        classify(status_error(429, headers={"retry-after": "-1"}), "foundry").retry_after
+        == 0.0
+    )
+    assert (
+        classify(
+            status_error(429, headers={"retry-after": "soon"}), "foundry"
+        ).retry_after
+        is None
+    )
+    assert (
+        classify(status_error(429, headers={"retry-after": "nan"}), "foundry").retry_after
+        is None
+    )
+    assert retry_delay(TransientError("x", retry_after=600.0), 1, 3, lambda: 0.5) == 60.0

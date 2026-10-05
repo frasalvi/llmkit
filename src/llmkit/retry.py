@@ -9,6 +9,7 @@ with full jitter. With retries attempted and all failed, the last error is wrapp
 
 from __future__ import annotations
 
+import math
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, NoReturn, TypeVar
 
@@ -42,9 +43,11 @@ def _retry_after(headers: Mapping[str, str] | None) -> float | None:
         if raw is None:
             continue
         try:
-            return float(raw) / scale
+            seconds = float(raw) / scale
         except ValueError:
             continue
+        if math.isfinite(seconds):
+            return max(0.0, seconds)
     return None
 
 
@@ -124,7 +127,11 @@ def classify(exc: BaseException, provider: str) -> RequestError:
         )
     if isinstance(exc, genai_errors.APIError):
         return _from_status(
-            str(exc), int(exc.code or 0), provider=provider, body=exc.details
+            str(exc),
+            int(exc.code or 0),
+            provider=provider,
+            body=exc.details,
+            headers=getattr(exc.response, "headers", None),
         )
     raise exc
 
@@ -180,6 +187,35 @@ def raise_from(err: RequestError, cause: BaseException) -> NoReturn:
     raise err from cause
 
 
+def _next_delay(
+    exc: Exception,
+    provider: str,
+    attempt: int,
+    max_retries: int,
+    rng: Callable[[], float],
+) -> float:
+    """Return the wait before the next attempt, or raise the final error.
+
+    Args:
+        exc: What the failed attempt raised.
+        provider: For error labelling.
+        attempt: The attempt that just failed (1-based).
+        max_retries: Retries allowed after the first attempt.
+        rng: Jitter source.
+
+    Returns:
+        Seconds to wait before retrying.
+
+    Raises:
+        RequestError: The final failure, when no retry is due.
+    """
+    err = classify(exc, provider)
+    delay = retry_delay(err, attempt, max_retries, rng)
+    if delay is None:
+        raise_from(final_error(err, attempt), exc)
+    return delay
+
+
 def call_with_retries(
     fn: Callable[[], T],
     *,
@@ -209,11 +245,7 @@ def call_with_retries(
         try:
             return fn(), attempt
         except Exception as exc:
-            err = classify(exc, provider)
-            delay = retry_delay(err, attempt, max_retries, rng)
-            if delay is None:
-                raise_from(final_error(err, attempt), exc)
-            sleep(delay)
+            sleep(_next_delay(exc, provider, attempt, max_retries, rng))
 
 
 async def acall_with_retries(
@@ -245,8 +277,4 @@ async def acall_with_retries(
         try:
             return await fn(), attempt
         except Exception as exc:
-            err = classify(exc, provider)
-            delay = retry_delay(err, attempt, max_retries, rng)
-            if delay is None:
-                raise_from(final_error(err, attempt), exc)
-            await sleep(delay)
+            await sleep(_next_delay(exc, provider, attempt, max_retries, rng))
