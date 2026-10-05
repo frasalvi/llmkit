@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import threading
 import uuid
 from collections.abc import Callable, Mapping
@@ -202,6 +203,30 @@ class JsonlLog:
         self.content = content
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._tail_checked = False
+
+    def _drop_torn_tail(self) -> None:
+        """Remove a partial last line left by a crash, so appends start on a clean line."""
+        if not self.path.exists():
+            return
+        with self.path.open("rb+") as handle:
+            size = handle.seek(0, os.SEEK_END)
+            end = size
+            while end > 0:
+                start = max(0, end - 65536)
+                handle.seek(start)
+                block = handle.read(end - start)
+                if end == size and block.endswith(b"\n"):
+                    return
+                newline = block.rfind(b"\n")
+                if newline >= 0:
+                    keep = start + newline + 1
+                    break
+                end = start
+            else:
+                keep = 0
+            handle.truncate(keep)
+        log.warning("dropped %d torn trailing bytes from %s", size - keep, self.path)
 
     def __call__(self, record: CallRecord) -> None:
         """Append *record* as one line.
@@ -212,9 +237,13 @@ class JsonlLog:
         line = json.dumps(
             record.to_dict(content=self.content), ensure_ascii=False, default=str
         )
-        with self._lock, self.path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
-            handle.flush()
+        with self._lock:
+            if not self._tail_checked:
+                self._drop_torn_tail()
+                self._tail_checked = True
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+                handle.flush()
 
 
 def read(path: str | Path) -> list[dict[str, Any]]:
