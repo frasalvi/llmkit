@@ -355,6 +355,7 @@ class LLM:
         started = time.monotonic()
 
         def attempt() -> Reply:
+            """Make one blocking attempt and parse the response."""
             raw = self._transport.send(self._clients.sync, body)
             return self._transport.parse(call, raw)
 
@@ -417,6 +418,7 @@ class LLM:
         started = time.monotonic()
 
         async def attempt() -> Reply:
+            """Make one async attempt and parse the response."""
             raw = await self._transport.asend(self._clients.async_, body)
             return self._transport.parse(call, raw)
 
