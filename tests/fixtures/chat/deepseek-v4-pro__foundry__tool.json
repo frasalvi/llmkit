@@ -1,0 +1,38 @@
+{
+ "model": "deepseek-v4-pro",
+ "provider": "foundry",
+ "kind": "tool",
+ "response": {
+  "id": "578389e5c99a4b398e13541b115a1c28",
+  "choices": [
+   {
+    "finish_reason": "tool_calls",
+    "index": 0,
+    "message": {
+     "content": "\n\n",
+     "role": "assistant",
+     "tool_calls": [
+      {
+       "id": "call_c711d5d675f948369080e049",
+       "function": {
+        "arguments": "{\"city\": \"Paris\"}",
+        "name": "get_weather"
+       },
+       "type": "function",
+       "index": 0
+      }
+     ]
+    }
+   }
+  ],
+  "created": 1791212429,
+  "model": "DeepSeek-V4-Pro",
+  "object": "chat.completion",
+  "usage": {
+   "completion_tokens": 45,
+   "prompt_tokens": 292,
+   "total_tokens": 337,
+   "audio_prompt_tokens": 0
+  }
+ }
+}

@@ -1,0 +1,422 @@
+{
+ "model": "gpt-5.6-luna",
+ "provider": "foundry",
+ "kind": "stream",
+ "chunks": [
+  {
+   "response": {
+    "id": "resp_0a948dc0d00a4a1c016ac3bb7a53ec81959e5e4cea655ff08e",
+    "created_at": 1791212410.0,
+    "metadata": {},
+    "model": "gpt-5.6-luna",
+    "object": "response",
+    "output": [],
+    "parallel_tool_calls": true,
+    "temperature": 1.0,
+    "tool_choice": "auto",
+    "tools": [],
+    "top_p": 0.98,
+    "background": false,
+    "max_output_tokens": 2000,
+    "prompt_cache_retention": "24h",
+    "reasoning": {
+     "context": "all_turns",
+     "effort": "medium",
+     "mode": "standard"
+    },
+    "service_tier": "auto",
+    "status": "in_progress",
+    "text": {
+     "format": {
+      "type": "text"
+     },
+     "verbosity": "medium"
+    },
+    "top_logprobs": 0,
+    "truncation": "disabled",
+    "frequency_penalty": 0.0,
+    "presence_penalty": 0.0,
+    "store": false,
+    "tool_usage": {
+     "image_gen": {
+      "input_tokens": 0,
+      "input_tokens_details": {
+       "image_tokens": 0,
+       "text_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+       "image_tokens": 0,
+       "text_tokens": 0
+      },
+      "total_tokens": 0
+     },
+     "web_search": {
+      "num_requests": 0
+     }
+    }
+   },
+   "sequence_number": 0,
+   "type": "response.created"
+  },
+  {
+   "response": {
+    "id": "resp_0a948dc0d00a4a1c016ac3bb7a53ec81959e5e4cea655ff08e",
+    "created_at": 1791212410.0,
+    "metadata": {},
+    "model": "gpt-5.6-luna",
+    "object": "response",
+    "output": [],
+    "parallel_tool_calls": true,
+    "temperature": 1.0,
+    "tool_choice": "auto",
+    "tools": [],
+    "top_p": 0.98,
+    "background": false,
+    "max_output_tokens": 2000,
+    "prompt_cache_retention": "24h",
+    "reasoning": {
+     "context": "all_turns",
+     "effort": "medium",
+     "mode": "standard"
+    },
+    "service_tier": "auto",
+    "status": "in_progress",
+    "text": {
+     "format": {
+      "type": "text"
+     },
+     "verbosity": "medium"
+    },
+    "top_logprobs": 0,
+    "truncation": "disabled",
+    "frequency_penalty": 0.0,
+    "presence_penalty": 0.0,
+    "store": false,
+    "tool_usage": {
+     "image_gen": {
+      "input_tokens": 0,
+      "input_tokens_details": {
+       "image_tokens": 0,
+       "text_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+       "image_tokens": 0,
+       "text_tokens": 0
+      },
+      "total_tokens": 0
+     },
+     "web_search": {
+      "num_requests": 0
+     }
+    }
+   },
+   "sequence_number": 1,
+   "type": "response.in_progress"
+  },
+  {
+   "item": {
+    "id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+    "content": [],
+    "role": "assistant",
+    "status": "in_progress",
+    "type": "message",
+    "phase": "final_answer"
+   },
+   "output_index": 0,
+   "sequence_number": 2,
+   "type": "response.output_item.added"
+  },
+  {
+   "content_index": 0,
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "output_index": 0,
+   "part": {
+    "annotations": [],
+    "text": "",
+    "type": "output_text",
+    "logprobs": []
+   },
+   "sequence_number": 3,
+   "type": "response.content_part.added"
+  },
+  {
+   "content_index": 0,
+   "delta": "Hello",
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 4,
+   "type": "response.output_text.delta",
+   "obfuscation": "npyllkxi5eY"
+  },
+  {
+   "content_index": 0,
+   "delta": ",",
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 5,
+   "type": "response.output_text.delta",
+   "obfuscation": "y7m86LFsmpHQJvU"
+  },
+  {
+   "content_index": 0,
+   "delta": " friend",
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 6,
+   "type": "response.output_text.delta",
+   "obfuscation": "zI4qGWqsF"
+  },
+  {
+   "content_index": 0,
+   "delta": "!",
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 7,
+   "type": "response.output_text.delta",
+   "obfuscation": "uS0OpVRwKjTY1Sl"
+  },
+  {
+   "content_index": 0,
+   "delta": " How",
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 8,
+   "type": "response.output_text.delta",
+   "obfuscation": "V9Q9PXj16CEF"
+  },
+  {
+   "content_index": 0,
+   "delta": " are",
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 9,
+   "type": "response.output_text.delta",
+   "obfuscation": "uwQ4Rjd0SFmS"
+  },
+  {
+   "content_index": 0,
+   "delta": " you",
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 10,
+   "type": "response.output_text.delta",
+   "obfuscation": "8KNT8m4X9uT1"
+  },
+  {
+   "content_index": 0,
+   "delta": "?",
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 11,
+   "type": "response.output_text.delta",
+   "obfuscation": "DDyK1MNEwPhW41Y"
+  },
+  {
+   "content_index": 0,
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "logprobs": [],
+   "output_index": 0,
+   "sequence_number": 12,
+   "text": "Hello, friend! How are you?",
+   "type": "response.output_text.done"
+  },
+  {
+   "content_index": 0,
+   "item_id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+   "output_index": 0,
+   "part": {
+    "annotations": [],
+    "text": "Hello, friend! How are you?",
+    "type": "output_text",
+    "logprobs": []
+   },
+   "sequence_number": 13,
+   "type": "response.content_part.done"
+  },
+  {
+   "item": {
+    "id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+    "content": [
+     {
+      "annotations": [],
+      "text": "Hello, friend! How are you?",
+      "type": "output_text",
+      "logprobs": []
+     }
+    ],
+    "role": "assistant",
+    "status": "completed",
+    "type": "message",
+    "phase": "final_answer"
+   },
+   "output_index": 0,
+   "sequence_number": 14,
+   "type": "response.output_item.done"
+  },
+  {
+   "response": {
+    "id": "resp_0a948dc0d00a4a1c016ac3bb7a53ec81959e5e4cea655ff08e",
+    "created_at": 1791212410.0,
+    "metadata": {},
+    "model": "gpt-5.6-luna",
+    "object": "response",
+    "output": [
+     {
+      "id": "msg_0a948dc0d00a4a1c016ac3bb7ae3308195be17f6cfd2b51ce9",
+      "content": [
+       {
+        "annotations": [],
+        "text": "Hello, friend! How are you?",
+        "type": "output_text",
+        "logprobs": []
+       }
+      ],
+      "role": "assistant",
+      "status": "completed",
+      "type": "message",
+      "phase": "final_answer"
+     }
+    ],
+    "parallel_tool_calls": true,
+    "temperature": 1.0,
+    "tool_choice": "auto",
+    "tools": [],
+    "top_p": 0.98,
+    "background": false,
+    "completed_at": 1791212411.0,
+    "max_output_tokens": 2000,
+    "prompt_cache_retention": "24h",
+    "reasoning": {
+     "context": "all_turns",
+     "effort": "medium",
+     "mode": "standard"
+    },
+    "service_tier": "default",
+    "status": "completed",
+    "text": {
+     "format": {
+      "type": "text"
+     },
+     "verbosity": "medium"
+    },
+    "top_logprobs": 0,
+    "truncation": "disabled",
+    "usage": {
+     "input_tokens": 12,
+     "input_tokens_details": {
+      "cache_write_tokens": 0,
+      "cached_tokens": 0
+     },
+     "output_tokens": 12,
+     "output_tokens_details": {
+      "reasoning_tokens": 0
+     },
+     "total_tokens": 24
+    },
+    "content_filters": [
+     {
+      "blocked": false,
+      "source_type": "prompt",
+      "content_filter_raw": [],
+      "content_filter_results": {
+       "hate": {
+        "filtered": false,
+        "severity": "safe"
+       },
+       "sexual": {
+        "filtered": false,
+        "severity": "safe"
+       },
+       "violence": {
+        "filtered": false,
+        "severity": "safe"
+       },
+       "self_harm": {
+        "filtered": false,
+        "severity": "safe"
+       },
+       "jailbreak": {
+        "detected": false,
+        "filtered": false
+       }
+      },
+      "content_filter_offsets": {
+       "start_offset": 0,
+       "end_offset": 802,
+       "check_offset": 0
+      }
+     },
+     {
+      "blocked": false,
+      "source_type": "completion",
+      "content_filter_raw": [],
+      "content_filter_results": {
+       "protected_material_text": {
+        "detected": false,
+        "filtered": false
+       },
+       "protected_material_code": {
+        "detected": false,
+        "filtered": false
+       },
+       "hate": {
+        "filtered": false,
+        "severity": "safe"
+       },
+       "sexual": {
+        "filtered": false,
+        "severity": "safe"
+       },
+       "violence": {
+        "filtered": false,
+        "severity": "safe"
+       },
+       "self_harm": {
+        "filtered": false,
+        "severity": "safe"
+       }
+      },
+      "content_filter_offsets": {
+       "start_offset": 0,
+       "end_offset": 27,
+       "check_offset": 0
+      }
+     }
+    ],
+    "frequency_penalty": 0.0,
+    "presence_penalty": 0.0,
+    "store": false,
+    "tool_usage": {
+     "image_gen": {
+      "input_tokens": 0,
+      "input_tokens_details": {
+       "image_tokens": 0,
+       "text_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+       "image_tokens": 0,
+       "text_tokens": 0
+      },
+      "total_tokens": 0
+     },
+     "web_search": {
+      "num_requests": 0
+     }
+    }
+   },
+   "sequence_number": 15,
+   "type": "response.completed"
+  }
+ ]
+}

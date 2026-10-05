@@ -1,0 +1,105 @@
+{
+ "model": "deepseek-v4-pro",
+ "provider": "foundry",
+ "kind": "stream",
+ "chunks": [
+  {
+   "id": "370e3570d00248fabc56b6144289edfb",
+   "choices": [
+    {
+     "delta": {
+      "content": "",
+      "role": "assistant"
+     },
+     "index": 0
+    }
+   ],
+   "created": 1791212430,
+   "model": "DeepSeek-V4-Pro",
+   "object": "chat.completion.chunk"
+  },
+  {
+   "id": "370e3570d00248fabc56b6144289edfb",
+   "choices": [
+    {
+     "delta": {
+      "content": "Hello"
+     },
+     "index": 0
+    }
+   ],
+   "created": 1791212430,
+   "model": "DeepSeek-V4-Pro",
+   "object": "chat.completion.chunk"
+  },
+  {
+   "id": "370e3570d00248fabc56b6144289edfb",
+   "choices": [
+    {
+     "delta": {
+      "content": " there"
+     },
+     "index": 0
+    }
+   ],
+   "created": 1791212430,
+   "model": "DeepSeek-V4-Pro",
+   "object": "chat.completion.chunk"
+  },
+  {
+   "id": "370e3570d00248fabc56b6144289edfb",
+   "choices": [
+    {
+     "delta": {
+      "content": ", how"
+     },
+     "index": 0
+    }
+   ],
+   "created": 1791212430,
+   "model": "DeepSeek-V4-Pro",
+   "object": "chat.completion.chunk"
+  },
+  {
+   "id": "370e3570d00248fabc56b6144289edfb",
+   "choices": [
+    {
+     "delta": {
+      "content": " are you?"
+     },
+     "index": 0
+    }
+   ],
+   "created": 1791212430,
+   "model": "DeepSeek-V4-Pro",
+   "object": "chat.completion.chunk"
+  },
+  {
+   "id": "370e3570d00248fabc56b6144289edfb",
+   "choices": [
+    {
+     "delta": {},
+     "finish_reason": "stop",
+     "index": 0,
+     "matched_stop": 1
+    }
+   ],
+   "created": 1791212430,
+   "model": "DeepSeek-V4-Pro",
+   "object": "chat.completion.chunk"
+  },
+  {
+   "id": "370e3570d00248fabc56b6144289edfb",
+   "choices": [],
+   "created": 1791212430,
+   "model": "DeepSeek-V4-Pro",
+   "object": "chat.completion.chunk",
+   "usage": {
+    "completion_tokens": 8,
+    "prompt_tokens": 10,
+    "total_tokens": 18,
+    "reasoning_tokens": 0
+   }
+  }
+ ]
+}
