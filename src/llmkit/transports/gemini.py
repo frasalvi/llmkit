@@ -80,6 +80,28 @@ def _enum_name(value: Any) -> str:
     return str(name if name else value).split(".")[-1]
 
 
+def _dump_content(content: Any) -> dict[str, Any]:
+    """Convert a response content to plain data for replay.
+
+    Args:
+        content: An SDK ``Content`` or namespace.
+
+    Returns:
+        The content as a dict, with function-call arguments kept exactly as sent.
+    """
+    out: dict[str, Any] = to_dict(content)
+    dumped = out.get("parts") or []
+    for raw_part, part in zip(
+        getattr(content, "parts", None) or [], dumped, strict=False
+    ):
+        function_call = getattr(raw_part, "function_call", None)
+        if function_call is not None and "function_call" in part:
+            part["function_call"]["args"] = (
+                to_dict(getattr(function_call, "args", None), keep_none=True) or {}
+            )
+    return out
+
+
 def _user_parts(content: str | list[Part]) -> list[dict[str, Any]]:
     """Render user content as Gemini parts.
 
@@ -172,7 +194,10 @@ class _Translator:
                 self._parts.append(part)
                 function_call = getattr(part, "function_call", None)
                 if function_call is not None:
-                    arguments = to_dict(getattr(function_call, "args", None)) or {}
+                    arguments = (
+                        to_dict(getattr(function_call, "args", None), keep_none=True)
+                        or {}
+                    )
                     events.append(
                         ToolCallDelta(
                             len(self._parts) - 1,
@@ -284,7 +309,9 @@ class GeminiTransport:
         for index, part in enumerate(getattr(content, "parts", None) or []):
             function_call = getattr(part, "function_call", None)
             if function_call is not None:
-                arguments = to_dict(getattr(function_call, "args", None)) or {}
+                arguments = (
+                    to_dict(getattr(function_call, "args", None), keep_none=True) or {}
+                )
                 call_id = getattr(function_call, "id", None) or f"{GENERATED_ID}{index}"
                 calls.append(
                     ToolCall(
@@ -319,7 +346,9 @@ class GeminiTransport:
             cached_input_tokens=cached,
             served_model=str(getattr(raw, "model_version", "") or ""),
             provider_state=(
-                ProviderState("gemini", to_dict(content)) if content is not None else None
+                ProviderState("gemini", _dump_content(content))
+                if content is not None
+                else None
             ),
         )
 

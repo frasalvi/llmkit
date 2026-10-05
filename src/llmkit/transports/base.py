@@ -159,23 +159,30 @@ def ns(value: Any) -> Any:
     return value
 
 
-def to_dict(value: Any) -> Any:
-    """Convert SDK objects or namespaces back to plain data, dropping ``None``.
+def to_dict(value: Any, *, keep_none: bool = False) -> Any:
+    """Convert SDK objects or namespaces back to plain data.
 
     Args:
         value: An SDK model, a namespace, or plain data.
+        keep_none: Keep ``None`` values. Leave unset for SDK models, whose unset optional
+            fields the API rejects; set it for model-authored data such as tool arguments,
+            where ``None`` is a real value.
 
     Returns:
         Dicts, lists and scalars only.
     """
     if hasattr(value, "model_dump"):
-        return value.model_dump(exclude_none=True)
+        return value.model_dump(exclude_none=not keep_none)
     if isinstance(value, SimpleNamespace):
-        return {k: to_dict(v) for k, v in vars(value).items() if v is not None}
+        value = vars(value)
     if isinstance(value, dict):
-        return {k: to_dict(v) for k, v in value.items() if v is not None}
+        return {
+            k: to_dict(v, keep_none=keep_none)
+            for k, v in value.items()
+            if keep_none or v is not None
+        }
     if isinstance(value, list):
-        return [to_dict(v) for v in value]
+        return [to_dict(v, keep_none=keep_none) for v in value]
     return value
 
 
