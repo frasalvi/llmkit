@@ -40,6 +40,9 @@ pythonpath = ["tests"]
 addopts = "-m 'not live'"
 markers = ["live: calls real provider endpoints; needs a .env and costs money"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "ignore:.*_UnionGenericAlias.*:DeprecationWarning:google.genai.types",
+]
 
 [tool.ruff]
 line-length = 90
