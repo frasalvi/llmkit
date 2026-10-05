@@ -45,6 +45,9 @@ from .base import (
     tool_schema,
 )
 
+TRANSIENT_CODES = frozenset(
+    {"server_error", "rate_limit_exceeded", "vector_store_timeout"}
+)
 EFFORTS = {
     "off": "none",
     "low": "low",
@@ -143,8 +146,12 @@ class _Translator:
         elif kind in ("response.completed", "response.incomplete"):
             self._final = chunk.response
         elif kind in ("response.failed", "error"):
-            detail = to_dict(getattr(chunk, "response", None) or chunk)
-            raise FatalRequest(
+            response = getattr(chunk, "response", None)
+            error = getattr(response, "error", None) or chunk
+            code = getattr(error, "code", None)
+            detail = to_dict(response or chunk)
+            error_type = TransientError if code in TRANSIENT_CODES else FatalRequest
+            raise error_type(
                 f"stream failed: {detail}", provider=self._call.route.provider
             )
         return []
