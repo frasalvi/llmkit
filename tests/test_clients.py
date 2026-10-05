@@ -93,6 +93,8 @@ def test_anthropic_clients_ignore_ambient_base_urls(monkeypatch):
     import llmkit.clients as clients_module
 
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://elsewhere.test/anthropic/")
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_RESOURCE", "elsewhere")
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "ambient-key")
     monkeypatch.setenv("ANTHROPIC_VERTEX_BASE_URL", "https://elsewhere.test/v1")
     foundry = make_clients(resolve("claude-opus-5"), FOUNDRY, 30.0)
     assert str(foundry.sync.base_url) == "https://myres.services.ai.azure.com/anthropic/"

@@ -16,8 +16,10 @@ from urllib.parse import urlparse
 
 import google.auth
 from anthropic import (
+    Anthropic,
     AnthropicFoundry,
     AnthropicVertex,
+    AsyncAnthropic,
     AsyncAnthropicFoundry,
     AsyncAnthropicVertex,
 )
@@ -54,6 +56,40 @@ class StaticClients:
 
     sync: Any
     async_: Any
+
+
+class _Foundry(AnthropicFoundry):
+    """AnthropicFoundry that reads none of the ``ANTHROPIC_FOUNDRY_*`` variables."""
+
+    def __init__(self, *, api_key: str, base_url: str, timeout: float) -> None:
+        """Build the client from explicit settings only.
+
+        Args:
+            api_key: ``AZURE_API_KEY``.
+            base_url: The resource's ``/anthropic/`` URL.
+            timeout: Per-attempt timeout in seconds.
+        """
+        Anthropic.__init__(
+            self, api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0
+        )
+        self._azure_ad_token_provider = None
+
+
+class _AsyncFoundry(AsyncAnthropicFoundry):
+    """Async twin of :class:`_Foundry`."""
+
+    def __init__(self, *, api_key: str, base_url: str, timeout: float) -> None:
+        """Build the client from explicit settings only.
+
+        Args:
+            api_key: ``AZURE_API_KEY``.
+            base_url: The resource's ``/anthropic/`` URL.
+            timeout: Per-attempt timeout in seconds.
+        """
+        AsyncAnthropic.__init__(
+            self, api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0
+        )
+        self._azure_ad_token_provider = None
 
 
 def foundry_base_url(endpoint: str) -> str:
@@ -235,12 +271,8 @@ def make_clients(route: Route, creds: dict[str, str], timeout: float) -> SdkClie
                 f"https://{foundry_resource(endpoint)}.services.ai.azure.com/anthropic/"
             )
             return StaticClients(
-                AnthropicFoundry(
-                    api_key=key, base_url=base, timeout=timeout, max_retries=0
-                ),
-                AsyncAnthropicFoundry(
-                    api_key=key, base_url=base, timeout=timeout, max_retries=0
-                ),
+                _Foundry(api_key=key, base_url=base, timeout=timeout),
+                _AsyncFoundry(api_key=key, base_url=base, timeout=timeout),
             )
         if transport in ("responses", "chat"):
             base = foundry_base_url(endpoint)
