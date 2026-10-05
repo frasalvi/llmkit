@@ -87,3 +87,39 @@ def test_vertex_chat_clients_refresh_token_lazily():
     second = clients.sync
     assert second is not first and second.api_key == "tok2"
     assert clients.async_.api_key == "tok2"
+
+
+def test_anthropic_clients_ignore_ambient_base_urls(monkeypatch):
+    import llmkit.clients as clients_module
+
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_BASE_URL", "https://elsewhere.test/anthropic/")
+    monkeypatch.setenv("ANTHROPIC_VERTEX_BASE_URL", "https://elsewhere.test/v1")
+    foundry = make_clients(resolve("claude-opus-5"), FOUNDRY, 30.0)
+    assert str(foundry.sync.base_url) == "https://myres.services.ai.azure.com/anthropic/"
+    assert (
+        str(foundry.async_.base_url) == "https://myres.services.ai.azure.com/anthropic/"
+    )
+
+    monkeypatch.setattr(
+        clients_module, "google_credentials", lambda creds: FakeCredentials()
+    )
+    env = {"GOOGLE_CLOUD_PROJECT": "p", "GOOGLE_CLOUD_LOCATION": "global"}
+    vertex = make_clients(resolve("claude-opus-5", "vertex"), env, 30.0)
+    assert str(vertex.sync.base_url).startswith("https://aiplatform.googleapis.com/v1")
+    assert str(vertex.async_.base_url).startswith("https://aiplatform.googleapis.com/v1")
+
+
+def test_vertex_anthropic_base_url_mirrors_the_sdk():
+    from llmkit.clients import vertex_anthropic_base_url
+
+    assert vertex_anthropic_base_url("global") == "https://aiplatform.googleapis.com/v1"
+    assert (
+        vertex_anthropic_base_url("us") == "https://aiplatform.us.rep.googleapis.com/v1"
+    )
+    assert (
+        vertex_anthropic_base_url("eu") == "https://aiplatform.eu.rep.googleapis.com/v1"
+    )
+    assert (
+        vertex_anthropic_base_url("us-east5")
+        == "https://us-east5-aiplatform.googleapis.com/v1"
+    )
