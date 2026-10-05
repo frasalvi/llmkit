@@ -127,8 +127,13 @@ def parse_output(source: dict[str, Any] | type[BaseModel], text: str) -> Any:
         try:
             return source.model_validate_json(text)  # type: ignore[union-attr]
         except ValidationError as exc:
+            # Without input values: they are model output, kept only in .raw.
+            problems = "; ".join(
+                f"{'.'.join(map(str, e['loc'])) or '<root>'}: {e['msg']}"
+                for e in exc.errors(include_input=False, include_context=False)
+            )
             raise SchemaError(
-                f"output does not match {schema_name(source)}: {exc}", raw=text
+                f"output does not match {schema_name(source)}: {problems}", raw=text
             ) from exc
     try:
         return json.loads(text)

@@ -149,7 +149,8 @@ class _Translator:
             response = getattr(chunk, "response", None)
             error = getattr(response, "error", None) or chunk
             code = getattr(error, "code", None)
-            detail = to_dict(response or chunk)
+            # Code and message only: the whole response echoes the prompt and output.
+            detail = f"{code}: {getattr(error, 'message', None)}"
             error_type = TransientError if code in TRANSIENT_CODES else FatalRequest
             raise error_type(
                 f"stream failed: {detail}", provider=self._call.route.provider

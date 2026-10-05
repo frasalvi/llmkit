@@ -54,3 +54,11 @@ def test_parse_output_validates_models_and_json():
     assert info.value.raw == '{"answer": "yes"}'
     with pytest.raises(SchemaError):
         parse_output({"type": "object"}, "not json")
+
+
+def test_schema_error_message_excludes_model_output():
+    secret = "SECRET-MODEL-OUTPUT"
+    with pytest.raises(SchemaError) as info:
+        parse_output(Verdict, f'{{"answer": 5, "confidence": "{secret}"}}')
+    assert secret not in str(info.value) and secret in info.value.raw
+    assert "confidence" in str(info.value)
