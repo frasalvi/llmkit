@@ -101,6 +101,8 @@ def test_build_tool_turns_and_reasoning_replay():
         ],
     }
     assert rendered[2] == {"role": "tool", "tool_call_id": "c1", "content": "sun"}
+    routed = T.build(call("z-ai/glm-5.2", "openrouter", messages=msgs))["messages"]
+    assert routed[1]["reasoning"] == "because" and "reasoning_content" not in routed[1]
 
 
 RESPONSE = {

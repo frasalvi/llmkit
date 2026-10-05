@@ -74,6 +74,11 @@ def _messages(call: Call) -> list[dict[str, Any]]:
     Returns:
         Chat messages; a chat-transport assistant turn gets its reasoning replayed.
     """
+    # OpenRouter reads replayed reasoning as ``reasoning``; other hosts as
+    # ``reasoning_content``.
+    replay_key = (
+        "reasoning" if call.route.provider == "openrouter" else "reasoning_content"
+    )
     out: list[dict[str, Any]] = []
     if call.system:
         out.append({"role": "system", "content": call.system})
@@ -89,7 +94,7 @@ def _messages(call: Call) -> list[dict[str, Any]]:
             if state is not None and state.transport == "chat":
                 reasoning = state.data.get("reasoning_content")
                 if reasoning:
-                    message["reasoning_content"] = reasoning
+                    message[replay_key] = reasoning
             if m.tool_calls:
                 message["tool_calls"] = [
                     {
