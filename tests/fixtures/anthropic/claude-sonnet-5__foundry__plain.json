@@ -1,0 +1,38 @@
+{
+ "model": "claude-sonnet-5",
+ "provider": "foundry",
+ "kind": "plain",
+ "response": {
+  "id": "msg_011CfjHmD9NajHCiux8BjCzD",
+  "content": [
+   {
+    "signature": "EpoECqQBCBIYAipAk1nFiRIhhzJ7UaVgewoOBD0VmnyrC9AfmbVgHkQyl0sxUQheMyCMLGUUdLUbDm0Y1Zsb00ABDdssWC6Ap0sgVDIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nWiRmNjY5YzEzMS1jZTdhLTQzOWYtYjZkMS1iMjBlMjMzNTEyN2WaAREKD2NsYXVkZS1zb25uZXQtNagB/PaO1gYSDHMsLJssBl6LxqZrzRoMArKHmZnjnRPXJNphIjDf2yZI2B4Mdj6mYBIJ+h1xd1BmI0VLul8fDXDqmehckcWWbYYw/fPx2N6xsB4pSroqogL/hUwkwRvLLLTjS61iEllDExym8LFzmoLvkpkAa5wl68Wpj6HrAeZ34yfdWLhxtFSr3Jzvjva5aTSw1r8+Bq5Kd/qO3/rirCyYp4loyHKipDrhEGLqB5d/wm0snXi8/gqjJuToDtseGP7cnaAopy6BADszS8x+YfoLCJx0jKrggz8+9hSUTkwqyf5K+w5bAkpZh9rW6niWw9YHewZYAGd2Tyy/PNyrgDY3o4M43YoKMtfnjG3Svve811t879fcY8OhgEKtzF8KCnuP7LdwWDEgLgHn+ASxaQ2shuzduhU6qyZUUIv88SR1wsqWsOvsttArXsg+cSDj+PRm36r3+44nj69N1NZ9GPT59G/t8IKnUI45cdtLDU2LXXAo1jhAGyM6zBgB",
+    "thinking": "",
+    "type": "thinking"
+   },
+   {
+    "text": "Hello there, how are you?",
+    "type": "text"
+   }
+  ],
+  "model": "claude-sonnet-5",
+  "role": "assistant",
+  "stop_reason": "end_turn",
+  "type": "message",
+  "usage": {
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 0,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "inference_geo": "global",
+   "input_tokens": 14,
+   "output_tokens": 121,
+   "output_tokens_details": {
+    "thinking_tokens": 109
+   },
+   "service_tier": "standard"
+  }
+ }
+}

@@ -1,0 +1,63 @@
+{
+ "model": "gemini-3.8-flash",
+ "provider": "vertex",
+ "kind": "tool",
+ "response": {
+  "sdk_http_response": {
+   "headers": {
+    "content-type": "application/json; charset=UTF-8",
+    "vary": "Origin, X-Origin, Referer",
+    "content-encoding": "gzip",
+    "date": "Mon, 05 Oct 2026 15:00:22 GMT",
+    "server": "scaffolding on HTTPServer2",
+    "x-xss-protection": "0",
+    "x-frame-options": "SAMEORIGIN",
+    "x-content-type-options": "nosniff",
+    "alt-svc": "h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000",
+    "transfer-encoding": "chunked"
+   }
+  },
+  "candidates": [
+   {
+    "content": {
+     "parts": [
+      {
+       "function_call": {
+        "id": "call_8731973",
+        "args": {
+         "city": "Paris"
+        },
+        "name": "get_weather"
+       },
+       "thought_signature": "AY89a1-qzegFxldb-vD5h_pa3W-Q5hI8k2yPPSiGgVKROwGXE9ly6vwMHMxfHga1zxNH2y0Q7kyQz_s-GjBdwJp5d6srOIzNLiyAjTj9liVAttsx1ylCwBHLbFgfhdASfsXCs6N6vmnMrVojEQ8O-vAZZmkreDf2MXmHw-sxlKuEWWtf554pf5z5rFv9YiVYB7FEMHKgrtfLbKiQu4BmDFq2kSObWWjDpbqyCuGDwLlbQjEpuTGjLd23oCxjvpzBI-lfKaJu_ti87Rc1N5hrgkoien-Cwesm4Au0gkqHmZqBYnjtqnDw6Mh5HxeLDfb-D3DYV3UQUM3y08E="
+      }
+     ],
+     "role": "model"
+    },
+    "finish_reason": "STOP"
+   }
+  ],
+  "create_time": "2026-10-05T15:00:20.537190Z",
+  "model_version": "gemini-3.8-flash",
+  "response_id": "hLvDaubkIOHYsbwPqpD18Ac",
+  "usage_metadata": {
+   "candidates_token_count": 16,
+   "candidates_tokens_details": [
+    {
+     "modality": "TEXT",
+     "token_count": 16
+    }
+   ],
+   "prompt_token_count": 32,
+   "prompt_tokens_details": [
+    {
+     "modality": "TEXT",
+     "token_count": 32
+    }
+   ],
+   "thoughts_token_count": 46,
+   "total_token_count": 94,
+   "traffic_type": "ON_DEMAND"
+  }
+ }
+}

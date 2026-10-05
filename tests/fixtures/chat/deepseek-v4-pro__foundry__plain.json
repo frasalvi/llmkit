@@ -1,0 +1,27 @@
+{
+ "model": "deepseek-v4-pro",
+ "provider": "foundry",
+ "kind": "plain",
+ "response": {
+  "id": "0986debf103943c38ca8215c3d646bc4",
+  "choices": [
+   {
+    "finish_reason": "stop",
+    "index": 0,
+    "message": {
+     "content": "Hello, hi, hey, greetings, salutations!",
+     "role": "assistant"
+    }
+   }
+  ],
+  "created": 1791212428,
+  "model": "DeepSeek-V4-Pro",
+  "object": "chat.completion",
+  "usage": {
+   "completion_tokens": 12,
+   "prompt_tokens": 10,
+   "total_tokens": 22,
+   "audio_prompt_tokens": 0
+  }
+ }
+}
