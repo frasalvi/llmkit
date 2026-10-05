@@ -89,6 +89,24 @@ def foundry_resource(endpoint: str) -> str:
     return host.split(".")[0]
 
 
+def vertex_anthropic_base_url(location: str) -> str:
+    """Return the base URL of Vertex's Anthropic endpoint, as the Anthropic SDK builds it.
+
+    Passed explicitly so ``ANTHROPIC_VERTEX_BASE_URL`` is never read.
+
+    Args:
+        location: A Vertex location, ``global``, ``us`` or ``eu``.
+
+    Returns:
+        The base URL.
+    """
+    if location == "global":
+        return "https://aiplatform.googleapis.com/v1"
+    if location in ("us", "eu"):
+        return f"https://aiplatform.{location}.rep.googleapis.com/v1"
+    return f"https://{location}-aiplatform.googleapis.com/v1"
+
+
 def vertex_openapi_base_url(project: str, location: str) -> str:
     """Return the base URL of Vertex's OpenAI-compatible endpoint.
 
@@ -212,13 +230,16 @@ def make_clients(route: Route, creds: dict[str, str], timeout: float) -> SdkClie
     if provider == "foundry":
         key, endpoint = creds["AZURE_API_KEY"], creds["AZURE_ENDPOINT"]
         if transport == "anthropic":
-            resource = foundry_resource(endpoint)
+            # base_url, not resource=: the SDK reads ANTHROPIC_FOUNDRY_BASE_URL otherwise.
+            base = (
+                f"https://{foundry_resource(endpoint)}.services.ai.azure.com/anthropic/"
+            )
             return StaticClients(
                 AnthropicFoundry(
-                    api_key=key, resource=resource, timeout=timeout, max_retries=0
+                    api_key=key, base_url=base, timeout=timeout, max_retries=0
                 ),
                 AsyncAnthropicFoundry(
-                    api_key=key, resource=resource, timeout=timeout, max_retries=0
+                    api_key=key, base_url=base, timeout=timeout, max_retries=0
                 ),
             )
         if transport in ("responses", "chat"):
@@ -246,6 +267,7 @@ def make_clients(route: Route, creds: dict[str, str], timeout: float) -> SdkClie
                 AnthropicVertex(
                     project_id=project,
                     region=location,
+                    base_url=vertex_anthropic_base_url(location),
                     credentials=credentials,
                     timeout=timeout,
                     max_retries=0,
@@ -253,6 +275,7 @@ def make_clients(route: Route, creds: dict[str, str], timeout: float) -> SdkClie
                 AsyncAnthropicVertex(
                     project_id=project,
                     region=location,
+                    base_url=vertex_anthropic_base_url(location),
                     credentials=credentials,
                     timeout=timeout,
                     max_retries=0,
