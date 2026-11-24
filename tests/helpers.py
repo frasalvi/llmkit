@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
+from datetime import UTC
 from types import SimpleNamespace
 from typing import Any
 
@@ -173,3 +174,57 @@ def make_resource(
         anthropic_org=None,
         deployments=deployments,
     )
+
+
+class FakeAzure:
+    """An ``AzureSource`` over fixed resources that records every call."""
+
+    def __init__(
+        self,
+        resources: list[Any],
+        spend: dict[str, float] | None = None,
+        cached: list[Any] | None = None,
+    ) -> None:
+        """Create the fake.
+
+        Args:
+            resources: What ``resources()`` returns.
+            spend: Month-to-date USD by llmkit name; 0 when absent.
+            cached: What ``cached_resources()`` returns.
+        """
+        self._resources = resources
+        self._spend = spend or {}
+        self._cached = cached
+        self.calls: list[str] = []
+
+    def resources(self, refresh: bool = False) -> list[Any]:
+        """Record and return the resources."""
+        self.calls.append("resources")
+        return self._resources
+
+    def cached_resources(self) -> list[Any] | None:
+        """Record and return the cached resources."""
+        self.calls.append("cached")
+        return self._cached
+
+    def spend(self, r: Any, refresh: bool = False) -> Any:
+        """Record and return the resource's spend."""
+        from datetime import datetime
+
+        from llmkit.azure.inventory import Spend
+
+        self.calls.append(f"spend:{r.name}")
+        return Spend(
+            self._spend.get(r.name, 0.0),
+            "USD",
+            datetime(2026, 11, 24, 9, 0, tzinfo=UTC),
+        )
+
+    def key(self, r: Any) -> str:
+        """Record and return a fake key."""
+        self.calls.append(f"key:{r.name}")
+        return f"key-{r.name}"
+
+    def invalidate(self) -> None:
+        """Record the call."""
+        self.calls.append("invalidate")
