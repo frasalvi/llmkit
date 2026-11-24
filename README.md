@@ -115,8 +115,10 @@ llm = LLM("glm-5.3", resource="beta")  # pin one
 print(llm.resource)  # "alpha"; also recorded on every CallRecord
 ```
 
-Caps warn and continue: when a resource is skipped or every resource is over its cap,
-llmkit emits `AzureRoutingWarning` once and uses the last candidate. Spend that cannot
+Caps warn and continue. When earlier resources are skipped (over their cap, or lacking
+a ready deployment), llmkit uses the next one in order and emits `AzureRoutingWarning`
+once per model and resource. When every candidate is over its cap, it warns the same
+way and uses the last one. Spend that cannot
 be read raises `SpendUnavailable`; it is never guessed. The inventory is cached for 24
 hours at `~/.cache/llmkit/azure.json` (a failed refresh falls back to it with
 `AzureInventoryWarning`) and spend for 1 hour. Spend figures lag Azure's billing by
