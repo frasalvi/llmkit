@@ -121,6 +121,11 @@ class Azure:
         self._keys: dict[tuple[str, str], str] = {}
         self._mem: dict[str, Any] = {}
 
+    @property
+    def arm(self) -> Arm:
+        """The ARM client, built on first use."""
+        return self._get_arm()
+
     def _get_arm(self) -> Arm:
         """Return the ARM client, building it on first use.
 

@@ -334,3 +334,18 @@ def test_set_tags_merges():
 
 def test_module_constants():
     assert arm_mod.ARM_BASE == "https://management.azure.com"
+
+
+def test_get_tags_reads_current_tags():
+    from llmkit.azure.inventory import get_tags
+
+    def handler(req):
+        assert req.method == "GET"
+        assert req.url.path.endswith(
+            "/accounts/acct-a/providers/Microsoft.Resources/tags/default"
+        )
+        return httpx.Response(200, json={"properties": {"tags": {"a": "1"}}})
+
+    assert get_tags(make_arm(handler), "s", "g", "acct-a") == {"a": "1"}
+    empty = make_arm(lambda req: httpx.Response(200, json={"properties": {}}))
+    assert get_tags(empty, "s", "g", "acct-a") == {}
