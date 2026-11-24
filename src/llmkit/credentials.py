@@ -16,7 +16,7 @@ from dotenv import dotenv_values
 from .errors import MissingCredential
 
 REQUIRED: dict[str, tuple[str, ...]] = {
-    "foundry": ("AZURE_API_KEY", "AZURE_ENDPOINT"),
+    "foundry": (),
     "vertex": ("GOOGLE_CLOUD_PROJECT",),
     "openrouter": ("OPENROUTER_API_KEY",),
 }
@@ -67,6 +67,34 @@ def load_env(
     if path is not None:
         merged.update({k: v for k, v in dotenv_values(path).items() if v is not None})
     return merged
+
+
+def azure_env_source(
+    env_file: Path | None,
+    start: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> str | None:
+    """Say where an ``AZURE_API_KEY`` or ``AZURE_ENDPOINT`` setting comes from.
+
+    Args:
+        env_file: A specific ``.env``; the nearest one is used when omitted.
+        start: Where to start searching; the working directory when omitted.
+        environ: The base environment; ``os.environ`` when omitted.
+
+    Returns:
+        The ``.env`` path when that file sets either variable, ``"process
+        environment"`` when only the environment does, and ``None`` otherwise.
+    """
+    names = ("AZURE_API_KEY", "AZURE_ENDPOINT")
+    path = env_file if env_file is not None else find_dotenv(start or Path.cwd())
+    if path is not None and path.is_file():
+        values = dotenv_values(path)
+        if any(values.get(n) for n in names):
+            return str(path)
+    base = os.environ if environ is None else environ
+    if any(base.get(n) for n in names):
+        return "process environment"
+    return None
 
 
 def credentials_for(provider: str, env: Mapping[str, str]) -> dict[str, str]:

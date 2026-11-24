@@ -63,6 +63,7 @@ class CallRecord:
         sample: The sample index requested.
         cache_attempts: Outcomes stored under this request's key after the call, or
             None without a cache.
+        resource: The Azure Foundry resource that served the call, or None.
     """
 
     timestamp: str
@@ -93,6 +94,7 @@ class CallRecord:
     cache: str | None = None
     sample: int = 0
     cache_attempts: int | None = None
+    resource: str | None = None
 
     def to_dict(self, *, content: bool = True) -> dict[str, Any]:
         """Return a JSON-ready dict.
@@ -156,6 +158,7 @@ def build_record(
     cache: str | None = None,
     sample: int = 0,
     cache_attempts: int | None = None,
+    resource: str | None = None,
 ) -> CallRecord:
     """Assemble the record for one call.
 
@@ -169,6 +172,7 @@ def build_record(
         cache: ``hit``, ``miss`` or ``retry`` when a cache was used.
         sample: The sample index.
         cache_attempts: Outcomes stored under the key after the call.
+        resource: The Azure resource that served the call, or None.
 
     Returns:
         The record.
@@ -203,6 +207,7 @@ def build_record(
         cache=cache,
         sample=sample,
         cache_attempts=cache_attempts,
+        resource=resource,
     )
 
 

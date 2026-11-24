@@ -20,9 +20,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from .azure import AzureSource, default_azure
+from .azure.target import foundry_target
 from .cache import HIT, Cache, Entry, Lookup, request_key
 from .clients import SdkClients, make_clients
-from .credentials import credentials_for, load_env
+from .credentials import azure_env_source, credentials_for, load_env
 from .errors import ContentFiltered, SchemaError, UnsupportedFeature
 from .ledger import current_ledger
 from .pricing import compute_cost, load_table, resolve_rates, warn_unpriced
@@ -79,6 +81,10 @@ class LLM:
         sleep: Callable[[float], None] | None = None,
         asleep: Callable[[float], Awaitable[None]] | None = None,
         rng: Callable[[], float] | None = None,
+        resource: str | None = None,
+        azure_key: str | None = None,
+        azure_endpoint: str | None = None,
+        azure: AzureSource | None = None,
     ) -> None:
         """Resolve the model and check everything that can be checked offline.
 
@@ -98,6 +104,11 @@ class LLM:
             sleep: Blocking sleep, for tests.
             asleep: Async sleep, for tests.
             rng: Jitter source, for tests.
+            resource: For Foundry models, the llmkit name of the Azure resource to use
+                regardless of tag order.
+            azure_key: Foundry API key; needs ``azure_endpoint``.
+            azure_endpoint: Foundry endpoint; needs ``azure_key``.
+            azure: Azure inventory source, for tests.
 
         Raises:
             UnknownModel: If the name does not resolve.
@@ -115,10 +126,28 @@ class LLM:
             self._hooks = [on_call]
         self._tags = dict(tags or {})
         merged = dict(env) if env is not None else load_env(env_file)
-        creds = credentials_for(self.route.provider, merged)
-        self._clients = (
-            clients if clients is not None else make_clients(self.route, creds, timeout)
-        )
+        self._resource: str | None = None
+        if self.route.provider != "foundry":
+            creds = credentials_for(self.route.provider, merged)
+            self._clients = (
+                clients
+                if clients is not None
+                else make_clients(self.route, creds, timeout)
+            )
+        elif clients is not None:
+            self._clients = clients
+        else:
+            target = foundry_target(
+                self.route,
+                env=merged,
+                env_source=None if env is not None else azure_env_source(env_file),
+                azure_key=azure_key,
+                azure_endpoint=azure_endpoint,
+                resource=resource,
+                azure=azure or default_azure(),
+            )
+            self._resource = target.resource
+            self._clients = make_clients(self.route, target.creds, timeout)
         table = price_table if price_table is not None else load_table()
         self.rates = resolve_rates(self.route, table or {})
         if self.rates is None:
@@ -132,6 +161,11 @@ class LLM:
     def model(self) -> str:
         """The requested model name."""
         return self.route.model
+
+    @property
+    def resource(self) -> str | None:
+        """The Azure Foundry resource serving this model, or ``None``."""
+        return self._resource
 
     @property
     def provider(self) -> str:
@@ -275,6 +309,7 @@ class LLM:
             cache=cache,
             sample=sample,
             cache_attempts=cache_attempts,
+            resource=self._resource,
         )
         if ledger is not None:
             ledger.add(record)

@@ -144,3 +144,10 @@ def test_append_to_a_file_that_is_one_torn_line(tmp_path):
     )
     JsonlLog(path)(record)
     assert len(read(path)) == 1
+
+
+def test_build_record_carries_resource():
+    kw = {"result": None, "error": None, "attempts": 1, "latency_ms": 1, "tags": {}}
+    rec = build_record(make_call(), resource="alpha", **kw)
+    assert rec.resource == "alpha" and rec.to_dict()["resource"] == "alpha"
+    assert build_record(make_call(), **kw).resource is None

@@ -4,10 +4,13 @@ llmkit: one client for the LLMs the research projects call.
 """
 
 from ._version import __version__
+from .azure.source import AzureInventoryWarning
+from .azure.target import AzureEnvKeyWarning, AzureRoutingWarning
 from .batch import Report, aquery, query
 from .cache import Cache
 from .client import LLM
 from .errors import (
+    AzureConfigError,
     BudgetExceeded,
     ContentFiltered,
     FatalRequest,
@@ -17,6 +20,7 @@ from .errors import (
     RequestTimeout,
     RetriesExhausted,
     SchemaError,
+    SpendUnavailable,
     TransientError,
     UnknownModel,
     UnsupportedEffort,
@@ -43,6 +47,10 @@ from .types import (
 __all__ = [
     "LADDER",
     "LLM",
+    "AzureConfigError",
+    "AzureEnvKeyWarning",
+    "AzureInventoryWarning",
+    "AzureRoutingWarning",
     "BudgetExceeded",
     "Cache",
     "CallRecord",
@@ -61,6 +69,7 @@ __all__ = [
     "Result",
     "RetriesExhausted",
     "SchemaError",
+    "SpendUnavailable",
     "Text",
     "TextDelta",
     "ThinkingDelta",

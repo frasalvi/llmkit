@@ -189,3 +189,69 @@ async def test_acomplete_failure_is_recorded():
     with pytest.raises(FatalRequest):
         await llm.acomplete("hi")
     assert len(seen) == 1 and seen[0].error_type == "FatalRequest"
+
+
+def test_llm_picks_resource():
+    from helpers import FakeAzure, make_resource
+
+    from llmkit.azure.inventory import Deployment
+    from llmkit.registry import resolve
+
+    name = resolve("glm-5.3").deployment
+    alpha = make_resource(
+        "alpha",
+        order=1,
+        deployments=(Deployment(name, name, "1", "Fireworks", "Succeeded"),),
+    )
+    azure = FakeAzure([alpha])
+    llm = LLM("glm-5.3", env={}, azure=azure, price_table=PRICES)
+    assert llm.resource == "alpha"
+    assert "key:alpha" in azure.calls
+
+
+def test_llm_injected_clients_skip_azure():
+    from helpers import FakeAzure
+
+    azure = FakeAzure([])
+    llm = make(azure=azure)
+    assert azure.calls == [] and llm.resource is None
+
+
+@pytest.mark.filterwarnings("ignore::llmkit.UnpricedModelWarning")
+def test_non_foundry_has_no_resource():
+    from helpers import FakeAzure
+
+    azure = FakeAzure([])
+    llm = LLM(
+        "gemini-3.1-pro",
+        env={"GOOGLE_CLOUD_PROJECT": "p"},
+        clients=fake_chat_clients([]),
+        azure=azure,
+        price_table=PRICES,
+    )
+    assert llm.resource is None and azure.calls == []
+
+
+def test_resource_is_recorded_on_calls():
+    from helpers import FakeAzure, make_resource
+
+    from llmkit.azure.inventory import Deployment
+    from llmkit.registry import resolve
+
+    name = resolve("glm-5.3").deployment
+    alpha = make_resource(
+        "alpha",
+        order=1,
+        deployments=(Deployment(name, name, "1", "Fireworks", "Succeeded"),),
+    )
+    records = []
+    llm = LLM(
+        "glm-5.3",
+        env={},
+        azure=FakeAzure([alpha]),
+        price_table=PRICES,
+        on_call=records.append,
+    )
+    llm._clients = fake_chat_clients([chat_response()])
+    llm.complete("hi")
+    assert records[0].resource == "alpha"
