@@ -136,3 +136,40 @@ def failing_after(chunks: list[Any], exc: BaseException) -> Iterator[Any]:
     """Yield *chunks*, then raise *exc*."""
     yield from chunks
     raise exc
+
+
+def make_resource(
+    name: str,
+    *,
+    order: int | None,
+    cap: float | None = 450.0,
+    deployments: tuple[Any, ...] = (),
+    subscription_id: str | None = None,
+) -> Any:
+    """Build an invented Azure ``Resource`` for tests.
+
+    Args:
+        name: The llmkit name; the subdomain is ``f"{name}-sub"``.
+        order: Selection order, or None for off.
+        cap: Monthly spend cap in USD.
+        deployments: Deployments attached to the resource.
+        subscription_id: Defaults to ``f"sub-{name}"``.
+
+    Returns:
+        A frozen ``Resource``.
+    """
+    from llmkit.azure.inventory import Resource
+
+    return Resource(
+        name=name,
+        account=f"acct-{name}",
+        subdomain=f"{name}-sub",
+        subscription_id=subscription_id or f"sub-{name}",
+        subscription_name=f"Subscription {name}",
+        resource_group=f"rg-{name}",
+        location="eastus",
+        order=order,
+        cap=cap,
+        anthropic_org=None,
+        deployments=deployments,
+    )

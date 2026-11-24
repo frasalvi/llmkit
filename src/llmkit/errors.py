@@ -143,3 +143,36 @@ class SchemaError(LLMKitError):
         """
         super().__init__(message)
         self.raw = raw
+
+
+class AzureConfigError(LLMKitError):
+    """The Azure tags, inventory or subscription setup is invalid."""
+
+
+class SpendUnavailable(LLMKitError):
+    """A subscription's month-to-date spend could not be determined."""
+
+    def __init__(self, subscription: str, reason: str) -> None:
+        """Name the subscription and why its spend is unknown.
+
+        Args:
+            subscription: The subscription whose spend was requested.
+            reason: Why the spend could not be read.
+        """
+        super().__init__(f"spend unavailable for {subscription}: {reason}")
+        self.subscription = subscription
+        self.reason = reason
+
+
+class ArmError(LLMKitError):
+    """An Azure Resource Manager request failed."""
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        """Record the failure and the HTTP status, when there was one.
+
+        Args:
+            message: Human-readable description.
+            status: HTTP status, when there was a response.
+        """
+        super().__init__(message)
+        self.status = status
