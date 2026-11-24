@@ -152,6 +152,16 @@ def test_spend_cached_for_1h_then_refetched(env):
     assert az.spend(r, refresh=True).amount == 300.0
 
 
+def test_spend_cache_does_not_cross_month_boundary(env):
+    az, calls, clock, _ = env
+    r = calls.resources[0]
+    clock.t = datetime(2026, 11, 30, 23, 50, tzinfo=UTC)
+    assert az.spend(r).amount == 100.0
+    clock.advance(minutes=20)
+    assert az.spend(r).amount == 200.0
+    assert calls.spend == 2
+
+
 def test_spend_failure_raises_even_with_old_cache(env):
     az, calls, clock, _ = env
     r = calls.resources[0]
