@@ -44,6 +44,7 @@ def test_status_text_rows_and_matrix():
     lines = text.splitlines()
     assert text.index("alpha") < text.index("beta") < text.index("echo")
     assert "$313.88 / $450" in text
+    assert "Subscription alpha" in text and "Subscription beta" in text
     assert "09:05 UTC" in text
     assert "lag" in lines[0].lower()
     assert "✓" in text and "!" in text

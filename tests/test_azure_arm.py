@@ -111,8 +111,15 @@ def test_token_fetched_once_across_threads():
 
 def test_az_token_missing_cli(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda _: None)
-    with pytest.raises(MissingCredential, match="az login"):
+    with pytest.raises(MissingCredential, match="az login") as exc:
         az_token()
+    assert_mentions_override(exc.value)
+
+
+def assert_mentions_override(err):
+    text = str(err)
+    assert "azure_key" in text and "azure_endpoint" in text
+    assert "AZURE_API_KEY" in text and "AZURE_ENDPOINT" in text
 
 
 def test_az_token_not_logged_in(monkeypatch):
@@ -124,8 +131,9 @@ def test_az_token_not_logged_in(monkeypatch):
             a, 1, stdout="", stderr="Please run 'az login'"
         ),
     )
-    with pytest.raises(MissingCredential, match="az login"):
+    with pytest.raises(MissingCredential, match="az login") as exc:
         az_token()
+    assert_mentions_override(exc.value)
 
 
 def test_az_token_bad_json(monkeypatch):

@@ -26,6 +26,10 @@ COGNITIVE_API = "2026-09-15-preview"
 COST_API = "2023-11-01"
 TAGS_API = "2021-04-01"
 TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
+OVERRIDE_HINT = (
+    "on a machine without az, pass azure_key= and azure_endpoint= to LLM, or set "
+    "AZURE_API_KEY and AZURE_ENDPOINT"
+)
 MAX_429_RETRIES = 3
 DEFAULT_RETRY_AFTER = 5.0
 MAX_RETRY_AFTER = 30.0
@@ -58,15 +62,23 @@ def az_token() -> tuple[str, datetime]:
     """
     exe = shutil.which("az")
     if exe is None:
-        raise MissingCredential("azure", ["the az CLI (install it, then `az login`)"])
+        raise MissingCredential(
+            "azure", [f"the az CLI (install it, then `az login`; {OVERRIDE_HINT})"]
+        )
     cmd = [exe, "account", "get-access-token", "--resource", ARM_BASE, "--output", "json"]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
-        raise MissingCredential("azure", [f"a working az CLI ({e}); `az login`"]) from e
+        raise MissingCredential(
+            "azure", [f"a working az CLI ({e}); `az login`; {OVERRIDE_HINT}"]
+        ) from e
     if proc.returncode != 0:
         raise MissingCredential(
-            "azure", [f"an az login session (run `az login`): {proc.stderr.strip()}"]
+            "azure",
+            [
+                f"an az login session (run `az login`; {OVERRIDE_HINT}): "
+                f"{proc.stderr.strip()}"
+            ],
         )
     try:
         data = json.loads(proc.stdout)
@@ -74,7 +86,7 @@ def az_token() -> tuple[str, datetime]:
         expires = datetime.fromtimestamp(int(data["expires_on"]), tz=UTC)
     except (ValueError, KeyError, TypeError) as e:
         raise MissingCredential(
-            "azure", [f"a readable az token ({e!r}); run `az login`"]
+            "azure", [f"a readable az token ({e!r}); run `az login`; {OVERRIDE_HINT}"]
         ) from e
     return token, expires
 

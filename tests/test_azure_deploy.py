@@ -16,7 +16,18 @@ DEP = "FW-GLM-5.3"
 class Fake:
     """Routes ARM calls for deploy tests and records every request."""
 
-    def __init__(self, models=None, usages=None, states=("Succeeded",), fail_put=None):
+    def __init__(
+        self,
+        models=None,
+        usages=None,
+        states=("Succeeded",),
+        fail_put=None,
+        existing=None,
+        get_errors=None,
+    ):
+        self.existing = existing or {}
+        self.get_errors = get_errors or {}
+        self.created: set[str] = set()
         self.models = models if models is not None else [model("1")]
         self.usages = usages or []
         self.states = list(states)
@@ -45,9 +56,21 @@ class Fake:
                 return httpx.Response(
                     400, json={"error": {"message": self.fail_put[acct]}}
                 )
+            self.created.add(acct)
             self.puts.append({"path": path, "body": json.loads(req.content)})
             return httpx.Response(201, json={})
         if req.method == "GET" and "/deployments/" in path:
+            acct = path.split("/accounts/")[1].split("/")[0]
+            if acct in self.get_errors:
+                return httpx.Response(
+                    self.get_errors[acct], json={"error": {"message": "get failed"}}
+                )
+            if acct in self.existing:
+                return httpx.Response(
+                    200, json={"properties": {"provisioningState": self.existing[acct]}}
+                )
+            if acct not in self.created:
+                return httpx.Response(404, json={"error": {"message": "not found"}})
             state = self.states.pop(0) if len(self.states) > 1 else self.states[0]
             return httpx.Response(200, json={"properties": {"provisioningState": state}})
         return httpx.Response(404, json={"error": {"message": f"unexpected {path}"}})
@@ -100,6 +123,44 @@ def test_present_any_state_skipped():
     assert (out.resource, out.status) == ("alpha", "present")
     assert "Disabled" in out.detail
     assert not any(m == "PUT" for m, _ in fake.requests)
+
+
+def test_stale_inventory_does_not_overwrite_existing_deployment():
+    fake = Fake(existing={"acct-alpha": "Succeeded"})
+    [out] = run(fake)  # inventory says absent, Azure says present
+    assert out.status == "present" and "Succeeded" in out.detail
+    assert fake.puts == []
+
+
+def test_deployment_get_other_error_fails_without_put():
+    fake = Fake(get_errors={"acct-alpha": 500})
+    [out] = run(fake)
+    assert out.status == "failed" and "get failed" in out.detail
+    assert fake.puts == []
+
+
+def test_dry_run_also_checks_existing():
+    fake = Fake(existing={"acct-alpha": "Disabled"})
+    [out] = run(fake, dry_run=True)
+    assert out.status == "present" and "Disabled" in out.detail
+
+
+@pytest.mark.parametrize(
+    "versions, expected",
+    [
+        (["9", "10"], "10"),
+        (["2", "10", "9"], "10"),
+        (["1.9", "1.10"], "1.10"),
+        (["2025-11-18", "2025-08-07"], "2025-11-18"),
+        (["2025-08-07", "2026-01-02", "2025-12-31"], "2026-01-02"),
+        (["preview", "alpha", "3"], "3"),
+        (["alpha", "beta"], "beta"),
+    ],
+)
+def test_newest_version_is_compared_numerically(versions, expected):
+    fake = Fake(models=[model(v) for v in versions])
+    run(fake)
+    assert fake.puts[0]["body"]["properties"]["model"]["version"] == expected
 
 
 def test_off_resources_untouched():

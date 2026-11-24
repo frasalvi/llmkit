@@ -77,10 +77,11 @@ def status_text(
     rows = _ordered(resources)
     lines = ["Spend is month-to-date; Azure billing figures lag by hours.", ""]
     width = max([len(r.name) for r in rows] + [4])
+    sub_width = max([len(r.subscription_name) for r in rows] + [12])
     for r in rows:
         order = "off" if r.order is None else str(r.order)
         lines.append(
-            f"{r.name:<{width}}  {order:<3}  "
+            f"{r.name:<{width}}  {order:<3}  {r.subscription_name:<{sub_width}}  "
             f"{_spend_text(r, spends.get(r.subscription_id)):<44}  "
             f"{len(r.deployments)} deployments"
         )

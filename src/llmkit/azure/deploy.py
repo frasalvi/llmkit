@@ -7,6 +7,7 @@ waits for provisioning.
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ SKU = "GlobalStandard"
 CAPACITY_CAP = 5000
 POLL_SECONDS = 10
 POLL_LIMIT = 60
+_NUMERIC_VERSION = re.compile(r"^\d+(?:[.-]\d+)*$")
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,21 @@ def deployment_name(model: str) -> str:
     if spec is not None and "foundry" in spec.routes:
         return spec.routes["foundry"]
     return model
+
+
+def _version_key(version: str) -> tuple[int, tuple[int, ...], str]:
+    """Order catalog versions: numeric ones (``10``, ``1.10``, ``2025-11-18``) by
+    their integer parts, ahead of any other version, which compares as a string.
+
+    Args:
+        version: A catalog version string.
+
+    Returns:
+        A sort key; larger means newer.
+    """
+    if _NUMERIC_VERSION.match(version):
+        return (1, tuple(int(p) for p in re.split(r"[.-]", version)), "")
+    return (0, (), version)
 
 
 def _pick_model(arm: Arm, r: Resource, name: str, version: str | None) -> dict[str, str]:
@@ -78,7 +95,7 @@ def _pick_model(arm: Arm, r: Resource, name: str, version: str | None) -> dict[s
     if not usable:
         wanted = f" version {version}" if version else ""
         raise ArmError(f"{name}{wanted} has no {SKU} sku in the catalog of {r.account}")
-    best = max(usable, key=lambda m: str(m.get("version", "")))
+    best = max(usable, key=lambda m: _version_key(str(m.get("version", ""))))
     return {
         "format": str(best.get("format", "")),
         "name": name,
@@ -170,6 +187,18 @@ def _deploy_one(
         return DeployOutcome(
             r.name, "present", f"{name} already exists ({present.state})"
         )
+    # the inventory may be stale: ask Azure before creating anything
+    path = _account_path(r.subscription_id, r.resource_group, r.account) + (
+        f"/deployments/{name}"
+    )
+    try:
+        live = arm.request("GET", path, api_version=COGNITIVE_API)
+    except ArmError as e:
+        if e.status != 404:
+            raise
+    else:
+        state = live.get("properties", {}).get("provisioningState", "unknown")
+        return DeployOutcome(r.name, "present", f"{name} already exists ({state})")
     chosen = _pick_model(arm, r, name, version)
     cap = capacity if capacity is not None else _capacity(arm, r, name)
     properties: dict[str, object] = {"model": chosen}
@@ -188,9 +217,6 @@ def _deploy_one(
     summary = f"{name} v{chosen['version']} capacity {cap}"
     if dry_run:
         return DeployOutcome(r.name, "would create", summary)
-    path = _account_path(r.subscription_id, r.resource_group, r.account) + (
-        f"/deployments/{name}"
-    )
     arm.request(
         "PUT",
         path,
