@@ -10,6 +10,8 @@ import contextlib
 import json
 import shutil
 import subprocess
+import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -19,11 +21,30 @@ import httpx
 from llmkit.errors import ArmError, MissingCredential
 
 ARM_BASE = "https://management.azure.com"
-GRAPH_API = "2021-03-01"
-COGNITIVE_API = "2024-10-01"
+GRAPH_API = "2022-10-01"
+COGNITIVE_API = "2026-09-15-preview"
 COST_API = "2023-11-01"
 TAGS_API = "2021-04-01"
 TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
+MAX_429_RETRIES = 3
+DEFAULT_RETRY_AFTER = 5.0
+MAX_RETRY_AFTER = 30.0
+
+
+def _retry_after(resp: httpx.Response) -> float:
+    """Read a Retry-After header in seconds, capped.
+
+    Args:
+        resp: The throttled response.
+
+    Returns:
+        Seconds to wait: the header (at most 30), or 5 when absent or not a number.
+    """
+    try:
+        wait = float(resp.headers["Retry-After"])
+    except (KeyError, ValueError):
+        return DEFAULT_RETRY_AFTER
+    return min(max(wait, 0.0), MAX_RETRY_AFTER)
 
 
 def az_token() -> tuple[str, datetime]:
@@ -67,6 +88,7 @@ class Arm:
         token: Callable[[], tuple[str, datetime]] = az_token,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 60.0,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         """Create a client.
 
@@ -74,7 +96,10 @@ class Arm:
             token: Returns an access token and its expiry.
             transport: Optional httpx transport, for tests.
             timeout: Per-request timeout in seconds.
+            sleep: Blocking sleep used between 429 retries, for tests.
         """
+        self._sleep = sleep
+        self._token_lock = threading.Lock()
         self._token_fn = token
         self._token: str | None = None
         self._expires: datetime | None = None
@@ -86,14 +111,15 @@ class Arm:
         Returns:
             The access token.
         """
-        now = datetime.now(UTC)
-        if (
-            self._token is None
-            or self._expires is None
-            or self._expires - now <= TOKEN_REFRESH_MARGIN
-        ):
-            self._token, self._expires = self._token_fn()
-        return self._token
+        with self._token_lock:
+            now = datetime.now(UTC)
+            if (
+                self._token is None
+                or self._expires is None
+                or self._expires - now <= TOKEN_REFRESH_MARGIN
+            ):
+                self._token, self._expires = self._token_fn()
+            return self._token
 
     def request(
         self, method: str, path: str, *, api_version: str, json: Any = None
@@ -130,6 +156,34 @@ class Arm:
     def _send(
         self, method: str, url: str, params: dict[str, str] | None, body: Any
     ) -> httpx.Response:
+        """Send a request, retrying HTTP 429 (and only 429) a few times.
+
+        Args:
+            method: HTTP method.
+            url: Path or absolute URL.
+            params: Query parameters, or None when the URL carries them.
+            body: Optional JSON body.
+
+        Returns:
+            The response.
+
+        Raises:
+            ArmError: On a non-2xx status or a transport failure.
+        """
+        for attempt in range(MAX_429_RETRIES + 1):
+            try:
+                return self._send_once(method, url, params, body)
+            except ArmError as e:
+                if e.status != 429 or attempt == MAX_429_RETRIES:
+                    raise
+                self._sleep(
+                    e.retry_after if e.retry_after is not None else DEFAULT_RETRY_AFTER
+                )
+        raise AssertionError("unreachable")
+
+    def _send_once(
+        self, method: str, url: str, params: dict[str, str] | None, body: Any
+    ) -> httpx.Response:
         """Send one authenticated request.
 
         Args:
@@ -158,10 +212,12 @@ class Arm:
             msg = resp.text
             with contextlib.suppress(ValueError, KeyError, TypeError):
                 msg = resp.json()["error"]["message"]
-            raise ArmError(
+            err = ArmError(
                 f"{method} {url} returned {resp.status_code}: {msg}",
                 status=resp.status_code,
             )
+            err.retry_after = _retry_after(resp)
+            raise err
         return resp
 
     @staticmethod

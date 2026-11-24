@@ -21,8 +21,13 @@ def _reset_routing_warnings():
 
 
 @pytest.fixture(autouse=True)
-def _no_real_arm(monkeypatch):
-    """Fail loudly if a test would build a real ARM client (and shell out to az)."""
+def _no_real_arm(request, monkeypatch):
+    """Fail loudly if a unit test would build a real ARM client (and shell out to az).
+
+    Live tests are meant to reach Azure, so they are exempt.
+    """
+    if request.node.get_closest_marker("live"):
+        return
 
     def refuse(*args, **kwargs):
         raise AssertionError("a test tried to build a real Arm client")

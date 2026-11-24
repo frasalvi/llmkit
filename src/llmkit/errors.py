@@ -176,3 +176,4 @@ class ArmError(LLMKitError):
         """
         super().__init__(message)
         self.status = status
+        self.retry_after: float | None = None

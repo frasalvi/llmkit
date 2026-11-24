@@ -16,7 +16,6 @@ from llmkit.azure.inventory import Resource, _account_path
 from llmkit.errors import ArmError
 from llmkit.registry import MODELS
 
-MODELS_API = "2026-09-15-preview"
 SKU = "GlobalStandard"
 CAPACITY_CAP = 5000
 POLL_SECONDS = 10
@@ -65,7 +64,7 @@ def _pick_model(arm: Arm, r: Resource, name: str, version: str | None) -> dict[s
     body = arm.request(
         "GET",
         _account_path(r.subscription_id, r.resource_group, r.account) + "/models",
-        api_version=MODELS_API,
+        api_version=COGNITIVE_API,
     )
     named = [m for m in body.get("value", []) if m.get("name") == name]
     if not named:

@@ -22,8 +22,91 @@ FAR = datetime.now(UTC) + timedelta(days=1)
 NOW = datetime(2026, 11, 24, tzinfo=UTC)
 
 
-def make_arm(handler, token=lambda: ("tok", FAR)):
-    return Arm(token=token, transport=httpx.MockTransport(handler))
+def make_arm(handler, token=lambda: ("tok", FAR), sleep=lambda s: None):
+    return Arm(token=token, transport=httpx.MockTransport(handler), sleep=sleep)
+
+
+def test_api_versions_are_the_planned_ones():
+    assert arm_mod.GRAPH_API == "2022-10-01"
+    assert arm_mod.COGNITIVE_API == "2026-09-15-preview"
+
+
+def test_429_is_retried_with_retry_after_then_succeeds():
+    calls, sleeps = [], []
+
+    def handler(req):
+        calls.append(1)
+        if len(calls) < 3:
+            return httpx.Response(429, headers={"Retry-After": "7"}, json={})
+        return httpx.Response(200, json={"ok": 1})
+
+    arm = make_arm(handler, sleep=sleeps.append)
+    assert arm.request("GET", "/x", api_version="v") == {"ok": 1}
+    assert sleeps == [7.0, 7.0]
+
+
+def test_retry_after_capped_and_defaulted():
+    sleeps = []
+
+    def handler(req):
+        if len(sleeps) == 0:
+            return httpx.Response(429, headers={"Retry-After": "300"}, json={})
+        if len(sleeps) == 1:
+            return httpx.Response(429, json={})
+        return httpx.Response(200, json={})
+
+    make_arm(handler, sleep=sleeps.append).request("GET", "/x", api_version="v")
+    assert sleeps == [30.0, 5.0]
+
+
+def test_429_gives_up_after_three_retries():
+    calls, sleeps = [], []
+
+    def handler(req):
+        calls.append(1)
+        return httpx.Response(429, json={"error": {"message": "slow down"}})
+
+    with pytest.raises(ArmError, match="slow down") as exc:
+        make_arm(handler, sleep=sleeps.append).request("GET", "/x", api_version="v")
+    assert exc.value.status == 429 and len(calls) == 4 and len(sleeps) == 3
+
+
+@pytest.mark.parametrize("status", [400, 403, 500, 503])
+def test_other_statuses_are_not_retried(status):
+    calls = []
+
+    def handler(req):
+        calls.append(1)
+        return httpx.Response(status, json={})
+
+    with pytest.raises(ArmError):
+        make_arm(handler).request("GET", "/x", api_version="v")
+    assert len(calls) == 1
+
+
+def test_token_fetched_once_across_threads():
+    import threading
+    import time
+
+    calls = []
+
+    def slow_token():
+        calls.append(1)
+        time.sleep(0.05)
+        return "tok", FAR
+
+    arm = make_arm(lambda req: httpx.Response(200, json={}), token=slow_token)
+    threads = [
+        threading.Thread(
+            target=arm.request, args=("GET", "/x"), kwargs={"api_version": "v"}
+        )
+        for _ in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(calls) == 1
 
 
 def test_az_token_missing_cli(monkeypatch):
@@ -146,6 +229,7 @@ def test_discover_builds_resources():
     def handler(req):
         if req.method == "POST" and req.url.path.endswith("/resources"):
             assert "llmkit-name" in json.loads(req.content)["query"]
+            assert req.url.params["api-version"] == "2022-10-01"
             return httpx.Response(
                 200,
                 json={
@@ -162,6 +246,7 @@ def test_discover_builds_resources():
                     ]
                 },
             )
+        assert req.url.params["api-version"] == "2026-09-15-preview"
         assert req.url.path == (
             "/subscriptions/sub-a/resourceGroups/rg-a/providers/"
             "Microsoft.CognitiveServices/accounts/acct-a/deployments"
@@ -284,6 +369,7 @@ def test_account_key_posts_list_keys():
 
     def handler(req):
         assert req.method == "POST"
+        assert req.url.params["api-version"] == "2026-09-15-preview"
         assert req.url.path == (
             "/subscriptions/sub-alpha/resourceGroups/rg-alpha/providers/"
             "Microsoft.CognitiveServices/accounts/acct-alpha/listKeys"

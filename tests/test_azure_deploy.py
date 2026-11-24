@@ -23,16 +23,18 @@ class Fake:
         self.fail_put = fail_put or {}
         self.requests: list[tuple[str, str]] = []
         self.puts: list[dict] = []
+        self.versions: list[str | None] = []
 
     def handler(self, req: httpx.Request) -> httpx.Response:
         path = req.url.path
         self.requests.append((req.method, path))
+        self.versions.append(req.url.params.get("api-version"))
         if path.endswith("/models"):
             if req.url.params.get("page") == "2":
                 return httpx.Response(200, json={"value": self.models[1:]})
             body = {"value": self.models[:1]}
             if len(self.models) > 1:
-                link = f"https://management.azure.com{path}?api-version=x&page=2"
+                link = f"https://management.azure.com{path}?api-version=2026-09-15-preview&page=2"
                 body["nextLink"] = link
             return httpx.Response(200, json=body)
         if path.endswith("/usages"):
@@ -121,6 +123,14 @@ def test_dry_run_sends_nothing():
     assert out.status == "would create"
     assert "1" in out.detail and "2000" in out.detail
     assert {m for m, _ in fake.requests} == {"GET"}
+
+
+def test_every_call_uses_the_preview_api_version():
+    fake = Fake(models=[model("1"), model("2")], usages=[usage(DEP, 8000, 0)])
+    run(fake)
+    methods = {m for m, _ in fake.requests}
+    assert methods == {"GET", "PUT"}
+    assert set(fake.versions) == {"2026-09-15-preview"}
 
 
 def test_created_request_shape():

@@ -347,6 +347,85 @@ def discover(arm: Arm) -> list[Resource]:
     return out
 
 
+def check_tag_change(
+    arm: Arm,
+    account: str,
+    subscription_id: str,
+    resource_group: str,
+    tags: Mapping[str, str],
+) -> None:
+    """Check that giving ``account`` these tags keeps the whole inventory valid.
+
+    Args:
+        arm: The ARM client.
+        account: The account being tagged.
+        subscription_id: Its subscription id.
+        resource_group: Its resource group.
+        tags: The account's tags after the change (current tags with the new ones).
+
+    Raises:
+        AzureConfigError: If the change would duplicate a name or an order, or put
+            two tagged resources in one subscription.
+    """
+    body = arm.request(
+        "POST",
+        "/providers/Microsoft.ResourceGraph/resources",
+        api_version=GRAPH_API,
+        json={"query": _GRAPH_QUERY},
+    )
+    stubs: list[Resource] = []
+    seen = False
+    for row in body.get("data", []):
+        is_target = (
+            row["name"].lower() == account.lower()
+            and row["subscriptionId"] == subscription_id
+        )
+        seen = seen or is_target
+        stubs.append(
+            _stub(
+                row["name"],
+                row["subscriptionId"],
+                row["resourceGroup"],
+                tags if is_target else row.get("tags") or {},
+            )
+        )
+    if not seen:
+        stubs.append(_stub(account, subscription_id, resource_group, tags))
+    check_inventory(stubs)
+
+
+def _stub(
+    account: str, subscription_id: str, resource_group: str, tags: Mapping[str, str]
+) -> Resource:
+    """Build a deployment-less resource from tags, for cross-resource checks.
+
+    Args:
+        account: The account name.
+        subscription_id: The subscription id.
+        resource_group: The resource group.
+        tags: The account's tags.
+
+    Returns:
+        A resource carrying only what ``check_inventory`` reads.
+
+    Raises:
+        AzureConfigError: If the tags are invalid.
+    """
+    parsed = parse_tags(tags, account)
+    return Resource(
+        name=parsed["name"],
+        account=account,
+        subdomain=account,
+        subscription_id=subscription_id,
+        subscription_name=subscription_id,
+        resource_group=resource_group,
+        location="",
+        order=parsed["order"],
+        cap=parsed["cap"],
+        anthropic_org=parsed["anthropic_org"],
+    )
+
+
 def month_spend(
     arm: Arm, subscription_id: str, subscription_name: str, now: datetime
 ) -> Spend:

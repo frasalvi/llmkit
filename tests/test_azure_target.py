@@ -144,6 +144,15 @@ def test_pin_on_order_path():
     assert target(FakeAzure(fleet()), resource="beta").resource == "beta"
 
 
+def test_env_key_warning_fires_every_time_under_default_filter():
+    az = FakeAzure(fleet())
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("default")
+        for _ in range(3):  # same call site each time
+            target(az, env=ENV_PAIR, env_source="/p/.env")
+    assert [w.category for w in rec].count(AzureEnvKeyWarning) == 3
+
+
 def test_routing_warning_deduplicated():
     az = FakeAzure(fleet(), spend={"alpha": 999.0})
     with pytest.warns(AzureRoutingWarning, match="using beta") as rec:
