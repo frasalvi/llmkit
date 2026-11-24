@@ -56,7 +56,53 @@ def test_retry_after_capped_and_defaulted():
         return httpx.Response(200, json={})
 
     make_arm(handler, sleep=sleeps.append).request("GET", "/x", api_version="v")
-    assert sleeps == [30.0, 5.0]
+    assert sleeps == [60.0, 5.0]
+
+
+def test_cost_management_retry_headers_are_honoured():
+    sleeps = []
+
+    def handler(req):
+        if not sleeps:
+            return httpx.Response(
+                429,
+                headers={"x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after": "40"},
+                json={},
+            )
+        return httpx.Response(200, json={})
+
+    make_arm(handler, sleep=sleeps.append).request("GET", "/x", api_version="v")
+    assert sleeps == [40.0]
+
+
+def test_retry_after_takes_the_largest_header_and_caps_at_60():
+    sleeps = []
+
+    def handler(req):
+        if len(sleeps) == 0:
+            return httpx.Response(
+                429,
+                headers={
+                    "Retry-After": "3",
+                    "X-MS-RateLimit-Microsoft.CostManagement-Tenant-Retry-After": "25",
+                    "x-ms-ratelimit-microsoft.costmanagement-entity-retry-after": "12",
+                    "x-ms-ratelimit-remaining": "0",
+                    "x-ms-bogus-retry-after": "soon",
+                },
+                json={},
+            )
+        if len(sleeps) == 1:
+            return httpx.Response(
+                429,
+                headers={
+                    "x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after": "500"
+                },
+                json={},
+            )
+        return httpx.Response(200, json={})
+
+    make_arm(handler, sleep=sleeps.append).request("GET", "/x", api_version="v")
+    assert sleeps == [25.0, 60.0]
 
 
 def test_429_gives_up_after_three_retries():
