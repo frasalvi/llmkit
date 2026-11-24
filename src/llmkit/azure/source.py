@@ -120,6 +120,7 @@ class Azure:
         self._lock = threading.Lock()
         self._keys: dict[tuple[str, str], str] = {}
         self._mem: dict[str, Any] = {}
+        self._flights: dict[object, threading.Lock] = {}
 
     @property
     def arm(self) -> Arm:
@@ -241,29 +242,55 @@ class Azure:
             MissingCredential: If not logged in and there is no cache.
             AzureConfigError: If the tags are invalid (never masked by the cache).
         """
-        with self._lock:
-            inv = self._load().get("inventory")
         now = self._now()
+        inv = self._cached_inventory()
         if inv and not refresh and now - inv["fetched"] < INVENTORY_TTL:
             return list(inv["resources"])
-        try:
-            found = discover(self._get_arm())
-        except (ArmError, MissingCredential) as e:
-            if inv is None:
-                raise
-            age = now - inv["fetched"]
-            warnings.warn(
-                f"Azure inventory refresh failed ({e}); using the cached copy "
-                f"from {age.total_seconds() / 3600:.0f} hours ago",
-                AzureInventoryWarning,
-                stacklevel=2,
-            )
-            return list(inv["resources"])
+        # one fetch at a time; threads that waited re-check the cache first
+        with self._flight("inventory"):
+            inv = self._cached_inventory()
+            if inv and not refresh and now - inv["fetched"] < INVENTORY_TTL:
+                return list(inv["resources"])
+            try:
+                found = discover(self._get_arm())
+            except (ArmError, MissingCredential) as e:
+                if inv is None:
+                    raise
+                age = now - inv["fetched"]
+                warnings.warn(
+                    f"Azure inventory refresh failed ({e}); using the cached copy "
+                    f"from {age.total_seconds() / 3600:.0f} hours ago",
+                    AzureInventoryWarning,
+                    stacklevel=2,
+                )
+                return list(inv["resources"])
+            with self._lock:
+                state = self._load()
+                state["inventory"] = {"fetched": now, "resources": found}
+                self._store(state)
+            return found
+
+    def _cached_inventory(self) -> dict[str, Any] | None:
+        """Read the cached inventory section.
+
+        Returns:
+            The section (``fetched`` and ``resources``), or None.
+        """
         with self._lock:
-            state = self._load()
-            state["inventory"] = {"fetched": now, "resources": found}
-            self._store(state)
-        return found
+            inv: dict[str, Any] | None = self._load().get("inventory")
+        return inv
+
+    def _flight(self, key: object) -> threading.Lock:
+        """Return the lock that serializes fetches of one kind.
+
+        Args:
+            key: What is being fetched, e.g. ``("spend", subscription_id)``.
+
+        Returns:
+            A lock shared by every caller with the same key.
+        """
+        with self._lock:
+            return self._flights.setdefault(key, threading.Lock())
 
     def spend(self, r: Resource, refresh: bool = False) -> Spend:
         """Return the subscription's month-to-date spend, cached for one hour.
@@ -280,16 +307,34 @@ class Azure:
                 never used as a fallback.
         """
         now = self._now()
-        with self._lock:
-            cached = self._load().get("spend", {}).get(r.subscription_id)
+        cached = self._cached_spend(r.subscription_id)
         if cached and not refresh and now - cached.fetched < SPEND_TTL:
             return cached
-        fresh = month_spend(self._get_arm(), r.subscription_id, r.subscription_name, now)
+        with self._flight(("spend", r.subscription_id)):
+            cached = self._cached_spend(r.subscription_id)
+            if cached and not refresh and now - cached.fetched < SPEND_TTL:
+                return cached
+            fresh = month_spend(
+                self._get_arm(), r.subscription_id, r.subscription_name, now
+            )
+            with self._lock:
+                state = self._load()
+                state.setdefault("spend", {})[r.subscription_id] = fresh
+                self._store(state)
+            return fresh
+
+    def _cached_spend(self, subscription_id: str) -> Spend | None:
+        """Read one subscription's cached spend.
+
+        Args:
+            subscription_id: The subscription id.
+
+        Returns:
+            The cached figure, or None.
+        """
         with self._lock:
-            state = self._load()
-            state.setdefault("spend", {})[r.subscription_id] = fresh
-            self._store(state)
-        return fresh
+            found: Spend | None = self._load().get("spend", {}).get(subscription_id)
+        return found
 
     def key(self, r: Resource) -> str:
         """Return the resource's API key, fetched once per process.
@@ -305,10 +350,15 @@ class Azure:
             cached = self._keys.get(ident)
         if cached is not None:
             return cached
-        key = account_key(self._get_arm(), r)
-        with self._lock:
-            self._keys[ident] = key
-        return key
+        with self._flight(("key", ident)):
+            with self._lock:
+                cached = self._keys.get(ident)
+            if cached is not None:
+                return cached
+            key = account_key(self._get_arm(), r)
+            with self._lock:
+                self._keys[ident] = key
+            return key
 
     def invalidate(self) -> None:
         """Drop the cached inventory; spend and keys are kept."""

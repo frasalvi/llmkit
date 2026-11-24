@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 import warnings
 from datetime import UTC, datetime, timedelta
 
@@ -28,6 +29,7 @@ class Clock:
 
 class Calls:
     def __init__(self, monkeypatch):
+        self.delay = 0.0
         self.discover = 0
         self.spend = 0
         self.key = 0
@@ -39,18 +41,21 @@ class Calls:
         monkeypatch.setattr(source, "account_key", self._key)
 
     def _discover(self, arm):
+        time.sleep(self.delay)
         self.discover += 1
         if self.discover_error:
             raise self.discover_error
         return self.resources
 
     def _spend(self, arm, sub_id, sub_name, now):
+        time.sleep(self.delay)
         self.spend += 1
         if self.spend_error:
             raise self.spend_error
         return Spend(100.0 * self.spend, "USD", now)
 
     def _key(self, arm, r):
+        time.sleep(self.delay)
         self.key += 1
         return "secret-key"
 
@@ -294,6 +299,31 @@ def test_default_azure_is_singleton_across_threads(monkeypatch):
     for t in threads:
         t.join()
     assert len(out) == 8 and len({id(a) for a in out}) == 1
+
+
+def test_cold_concurrent_callers_fetch_once(env):
+    az, calls, _, _ = env
+    calls.delay = 0.05
+    r = calls.resources[0]
+    errors = []
+    barrier = threading.Barrier(8)
+
+    def worker():
+        try:
+            barrier.wait()
+            az.resources()
+            az.spend(r)
+            az.key(r)
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert (calls.discover, calls.spend, calls.key) == (1, 1, 1)
 
 
 def test_no_warning_on_fresh_path(env):

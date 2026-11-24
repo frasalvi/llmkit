@@ -7,6 +7,7 @@ the environment, then tag order and monthly cap.
 
 from __future__ import annotations
 
+import sys
 import threading
 import warnings
 from collections.abc import Mapping
@@ -64,12 +65,26 @@ def _warn_env_key(
         action = f"; they are ignored because resource={pinned!r} was requested"
     else:
         action = "; this bypasses tag routing and spend caps"
-    warnings.warn(
+    message = (
         f"AZURE_API_KEY/AZURE_ENDPOINT from {env_source} point at resource "
         f"{name}{note}{action}. To route by Azure tags, delete AZURE_API_KEY and "
-        f"AZURE_ENDPOINT from {env_source}.",
+        f"AZURE_ENDPOINT from {env_source}."
+    )
+    # attribute the warning to the caller of LLM(...), with a fresh registry so the
+    # default filter's once-per-location suppression never applies
+    try:
+        frame = sys._getframe(3)
+        filename, lineno = frame.f_code.co_filename, frame.f_lineno
+        module = frame.f_globals.get("__name__", "<unknown>")
+    except ValueError:
+        filename, lineno, module = "<unknown>", 0, "<unknown>"
+    warnings.warn_explicit(
+        message,
         AzureEnvKeyWarning,
-        stacklevel=4,
+        filename,
+        lineno,
+        module=module,
+        registry=None,
     )
 
 

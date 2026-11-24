@@ -132,7 +132,8 @@ llmkit azure tag acct-a --name alpha --order 1 --cap 450
 
 `deploy` creates the model on every resource with a numeric order that lacks it (newest
 GlobalStandard version, capacity from the subscription's quota, at most 5000) and waits
-for provisioning. `tag` merges the given tags and validates the result first.
+for provisioning. `tag` merges the given tags and refuses (exit 2) a result that is
+invalid or that clashes with another resource's name, order or subscription.
 
 ## Effort
 

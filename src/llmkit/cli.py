@@ -14,6 +14,7 @@ from llmkit.azure.deploy import deploy
 from llmkit.azure.inventory import (
     Resource,
     Spend,
+    check_tag_change,
     find_account,
     get_tags,
     parse_tags,
@@ -192,6 +193,7 @@ def _tag(azure: Azure, args: argparse.Namespace) -> int:
     if "llmkit-name" not in merged:
         raise AzureConfigError(f"{args.account} has no llmkit-name yet; pass --name")
     parse_tags(merged, args.account)
+    check_tag_change(azure.arm, args.account, sub, rg, merged)
     set_tags(azure.arm, sub, rg, args.account, given)
     azure.invalidate()
     print(f"{args.account}: tagged " + ", ".join(f"{k}={v}" for k, v in given.items()))

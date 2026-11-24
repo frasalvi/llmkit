@@ -79,7 +79,11 @@ class Backend:
         self.account_tags = tags_of_beta or {}
 
     def arm(self):
-        return Arm(token=lambda: ("tok", FAR), transport=httpx.MockTransport(self.handle))
+        return Arm(
+            token=lambda: ("tok", FAR),
+            transport=httpx.MockTransport(self.handle),
+            sleep=lambda s: None,
+        )
 
     def handle(self, req):
         path = req.url.path
@@ -235,6 +239,50 @@ def test_tag_numeric_order_needs_cap(tmp_path, capsys):
     assert be.patches == []
 
 
+@pytest.mark.parametrize(
+    "args, needle",
+    [
+        (["--order", "1"], "order 1"),  # alpha already holds order 1
+        (["--name", "alpha"], "alpha"),  # alpha is taken
+    ],
+)
+def test_tag_rejects_cross_resource_conflict(tmp_path, capsys, args, needle):
+    be = TagBackend(
+        tags_of_beta={"llmkit-name": "beta", "llmkit-order": "2", "llmkit-cap": "450"}
+    )
+    code = main(["azure", "tag", "acct-beta", *args], azure=be.azure(tmp_path))
+    err = capsys.readouterr().err
+    assert code == 2 and needle in err and "acct-alpha" in err and "acct-beta" in err
+    assert be.patches == []
+
+
+def test_tag_new_account_conflicting_with_existing_order(tmp_path, capsys):
+    class Untagged(TagBackend):
+        def handle(self, req):
+            if req.url.path.endswith("/resources") and b"name =~" in req.content:
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": [
+                            {
+                                "name": "acct-new",
+                                "subscriptionId": "sub-new",
+                                "resourceGroup": "rg-new",
+                            }
+                        ]
+                    },
+                )
+            return Backend.handle(self, req)
+
+    be = Untagged(tags_of_beta={})
+    code = main(
+        ["azure", "tag", "acct-new", "--name", "newone", "--order", "1", "--cap", "10"],
+        azure=be.azure(tmp_path),
+    )
+    assert code == 2 and "acct-alpha" in capsys.readouterr().err
+    assert be.patches == []
+
+
 def test_tag_merges_and_invalidates(tmp_path, capsys):
     be = TagBackend(
         tags_of_beta={"llmkit-name": "beta", "llmkit-order": "off", "team": "x"}
@@ -262,7 +310,11 @@ def test_tag_unknown_account_exits_nonzero(tmp_path, capsys):
         return Backend.handle(be, req)
 
     az = Azure(
-        arm=Arm(token=lambda: ("t", FAR), transport=httpx.MockTransport(handle)),
+        arm=Arm(
+            token=lambda: ("t", FAR),
+            transport=httpx.MockTransport(handle),
+            sleep=lambda s: None,
+        ),
         cache_path=tmp_path / "a.json",
     )
     assert main(["azure", "tag", "nope", "--name", "x", "--order", "off"], azure=az) == 2
