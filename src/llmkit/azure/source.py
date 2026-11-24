@@ -97,6 +97,22 @@ def _parse_time(value: Any) -> datetime:
     return t
 
 
+def _spend_fresh(cached: Spend, now: datetime) -> bool:
+    """Tell whether a cached spend figure can still gate this month's calls.
+
+    Args:
+        cached: The cached figure.
+        now: The current time.
+
+    Returns:
+        True when it is younger than SPEND_TTL and from the same UTC month as now.
+    """
+    fetched = cached.fetched.astimezone(UTC)
+    current = now.astimezone(UTC)
+    same_month = (fetched.year, fetched.month) == (current.year, current.month)
+    return same_month and now - cached.fetched < SPEND_TTL
+
+
 class Azure:
     """Azure inventory, spend and keys, with an on-disk cache of the first two."""
 
@@ -308,11 +324,11 @@ class Azure:
         """
         now = self._now()
         cached = self._cached_spend(r.subscription_id)
-        if cached and not refresh and now - cached.fetched < SPEND_TTL:
+        if cached and not refresh and _spend_fresh(cached, now):
             return cached
         with self._flight(("spend", r.subscription_id)):
             cached = self._cached_spend(r.subscription_id)
-            if cached and not refresh and now - cached.fetched < SPEND_TTL:
+            if cached and not refresh and _spend_fresh(cached, now):
                 return cached
             fresh = month_spend(
                 self._get_arm(), r.subscription_id, r.subscription_name, now
