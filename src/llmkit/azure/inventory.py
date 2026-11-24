@@ -450,6 +450,33 @@ def find_account(arm: Arm, account: str) -> tuple[str, str]:
     return rows[0]["subscriptionId"], rows[0]["resourceGroup"]
 
 
+def get_tags(
+    arm: Arm, subscription_id: str, resource_group: str, account: str
+) -> dict[str, str]:
+    """Read an account's current tags.
+
+    Args:
+        arm: The ARM client.
+        subscription_id: The subscription id.
+        resource_group: The resource group name.
+        account: The account name.
+
+    Returns:
+        The tags, empty when the account has none.
+
+    Raises:
+        ArmError: If the request fails.
+    """
+    body = arm.request(
+        "GET",
+        _account_path(subscription_id, resource_group, account)
+        + "/providers/Microsoft.Resources/tags/default",
+        api_version=TAGS_API,
+    )
+    tags = body.get("properties", {}).get("tags") or {}
+    return {str(k): str(v) for k, v in tags.items()}
+
+
 def set_tags(
     arm: Arm,
     subscription_id: str,
