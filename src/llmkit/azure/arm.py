@@ -32,23 +32,33 @@ OVERRIDE_HINT = (
 )
 MAX_429_RETRIES = 3
 DEFAULT_RETRY_AFTER = 5.0
-MAX_RETRY_AFTER = 30.0
+MAX_RETRY_AFTER = 60.0
 
 
 def _retry_after(resp: httpx.Response) -> float:
-    """Read a Retry-After header in seconds, capped.
+    """Read how long a throttled response asks us to wait, in seconds, capped.
+
+    Considers ``Retry-After`` and every header ending in ``-retry-after`` (Cost
+    Management sends its own, such as
+    ``x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after``), numeric seconds only.
 
     Args:
         resp: The throttled response.
 
     Returns:
-        Seconds to wait: the header (at most 30), or 5 when absent or not a number.
+        The largest requested wait (at most 60), or 5 when none is given.
     """
-    try:
-        wait = float(resp.headers["Retry-After"])
-    except (KeyError, ValueError):
+    waits = []
+    for name, value in resp.headers.items():
+        lowered = name.lower()
+        if lowered == "retry-after" or lowered.endswith("-retry-after"):
+            try:
+                waits.append(float(value))
+            except ValueError:
+                continue
+    if not waits:
         return DEFAULT_RETRY_AFTER
-    return min(max(wait, 0.0), MAX_RETRY_AFTER)
+    return min(max(max(waits), 0.0), MAX_RETRY_AFTER)
 
 
 def az_token() -> tuple[str, datetime]:
