@@ -11,8 +11,8 @@ from llmkit.azure.arm import Arm
 from llmkit.azure.deploy import DeployOutcome
 from llmkit.azure.inventory import Deployment, Spend
 from llmkit.azure.source import Azure
-from llmkit.cli import main, status_text
-from llmkit.errors import SpendUnavailable
+from llmkit.cli import main, models_text, status_text
+from llmkit.errors import ArmError, SpendUnavailable
 
 FAR = datetime.now(UTC) + timedelta(days=1)
 FETCHED = datetime(2026, 11, 24, 9, 5, tzinfo=UTC)
@@ -375,7 +375,7 @@ def test_help_lists_commands(capsys):
         main(["azure", "--help"])
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    assert "status" in out and "deploy" in out and "tag" in out
+    assert "status" in out and "deploy" in out and "tag" in out and "models" in out
 
 
 def test_bad_arguments_return_2(capsys):
@@ -391,3 +391,61 @@ def test_missing_credential_exits_1(tmp_path, capsys):
 
     assert main(["azure", "status"], azure=Broken()) == 1
     assert "az login" in capsys.readouterr().err
+
+
+def test_models_text_marks_each_resource():
+    alpha = make_resource("alpha", order=1, deployments=(dep("gpt-6-sol"),))
+    beta = make_resource(
+        "beta", order=2, deployments=(dep("gpt-6-luna", state="Disabled"),)
+    )
+    gamma = make_resource("gamma", order=3)
+    offered = {
+        "alpha": {"gpt-6-sol": "2", "gpt-6-luna": "1"},
+        "beta": {"gpt-6-sol": "10", "gpt-6-luna": "1"},
+        "gamma": SpendUnavailable("x", "y"),
+    }
+    lines = models_text("gpt-6", [gamma, beta, alpha], offered).splitlines()
+    assert "gpt-6" in lines[0]
+    assert lines[1].split() == ["version", "alpha", "beta", "gamma"]
+    assert lines[2].split() == ["gpt-6-luna", "1", "-", "!", "?"]
+    assert lines[3].split() == ["gpt-6-sol", "10", "✓", "-", "?"]
+    assert "gamma: catalog unreadable" in lines[4]
+
+
+def test_models_text_not_offered_and_no_match():
+    alpha = make_resource("alpha", order=1)
+    beta = make_resource("beta", order=2)
+    text = models_text(
+        "terra", [alpha, beta], {"alpha": {"gpt-6.1-terra": "1"}, "beta": {}}
+    )
+    assert text.splitlines()[2].split() == ["gpt-6.1-terra", "1", "-", "x"]
+    assert "No deployable model" in models_text("zzz", [alpha], {"alpha": {}})
+
+
+def test_models_command_reads_only_in_order_catalogs(monkeypatch, capsys):
+    seen = []
+
+    def fake_catalog(arm, r):
+        seen.append(r.name)
+        if r.name == "beta":
+            raise ArmError("403 forbidden")
+        return [
+            {"name": "gpt-6-sol", "version": "1", "skus": [{"name": "GlobalStandard"}]}
+        ]
+
+    class Az:
+        arm = object()
+
+        def resources(self, refresh=False):
+            return [
+                make_resource("alpha", order=1),
+                make_resource("beta", order=2),
+                make_resource("echo", order=None, cap=None),
+            ]
+
+    monkeypatch.setattr(cli, "catalog", fake_catalog)
+    assert main(["azure", "models", "gpt-6"], azure=Az()) == 1
+    out = capsys.readouterr().out
+    assert seen == ["alpha", "beta"]
+    assert "gpt-6-sol" in out and "beta: catalog unreadable (403 forbidden)" in out
+    assert "echo" not in out
