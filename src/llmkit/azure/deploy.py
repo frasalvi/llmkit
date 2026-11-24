@@ -1,16 +1,17 @@
 """Review tier: plumbing.
 
-Deploys a model to every in-order Foundry resource: picks the newest GlobalStandard
-version from the account's catalog, sizes capacity from the subscription's quota, and
-waits for provisioning.
+Searches a resource's model catalog, and deploys a model to every in-order Foundry
+resource: picks the newest GlobalStandard version from the account's catalog, sizes
+capacity from the subscription's quota, and waits for provisioning.
 """
 
 from __future__ import annotations
 
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from llmkit.azure.arm import COGNITIVE_API, Arm
 from llmkit.azure.inventory import Resource, _account_path
@@ -63,6 +64,49 @@ def _version_key(version: str) -> tuple[int, tuple[int, ...], str]:
     return (0, (), version)
 
 
+def catalog(arm: Arm, r: Resource) -> list[dict[str, Any]]:
+    """Read every model a resource can deploy.
+
+    Args:
+        arm: The ARM client.
+        r: The resource whose catalog is read (all pages).
+
+    Returns:
+        The catalog entries, each with ``name``, ``version``, ``format`` and ``skus``.
+    """
+    body = arm.request(
+        "GET",
+        _account_path(r.subscription_id, r.resource_group, r.account) + "/models",
+        api_version=COGNITIVE_API,
+    )
+    return list(body.get("value", []))
+
+
+def newest_versions(entries: Sequence[Mapping[str, Any]], pattern: str) -> dict[str, str]:
+    """Find the deployable models whose name contains a pattern.
+
+    Args:
+        entries: Catalog entries from ``catalog``.
+        pattern: Text matched anywhere in the model name, ignoring case.
+
+    Returns:
+        Each matching model name with its newest GlobalStandard version; models
+        without a GlobalStandard sku are left out, since ``deploy`` cannot use them.
+    """
+    needle = pattern.lower()
+    best: dict[str, str] = {}
+    for m in entries:
+        name = str(m.get("name", ""))
+        if needle not in name.lower():
+            continue
+        if SKU not in {s.get("name") for s in m.get("skus", [])}:
+            continue
+        version = str(m.get("version", ""))
+        if name not in best or _version_key(version) > _version_key(best[name]):
+            best[name] = version
+    return best
+
+
 def _pick_model(arm: Arm, r: Resource, name: str, version: str | None) -> dict[str, str]:
     """Find the catalog entry to deploy.
 
@@ -78,12 +122,7 @@ def _pick_model(arm: Arm, r: Resource, name: str, version: str | None) -> dict[s
     Raises:
         ArmError: If the catalog has no GlobalStandard entry for the name.
     """
-    body = arm.request(
-        "GET",
-        _account_path(r.subscription_id, r.resource_group, r.account) + "/models",
-        api_version=COGNITIVE_API,
-    )
-    named = [m for m in body.get("value", []) if m.get("name") == name]
+    named = [m for m in catalog(arm, r) if m.get("name") == name]
     if not named:
         raise ArmError(f"{name} is not in the model catalog of {r.account}")
     usable = [

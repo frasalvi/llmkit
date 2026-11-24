@@ -1,6 +1,6 @@
 """Review tier: plumbing.
 
-The ``llmkit azure`` command line: ``status``, ``deploy`` and ``tag``. Nothing it
+The ``llmkit azure`` command line: ``status``, ``models``, ``deploy`` and ``tag``. Nothing it
 prints includes an API key, and it never fetches one.
 """
 
@@ -10,7 +10,7 @@ import argparse
 import sys
 from collections.abc import Mapping, Sequence
 
-from llmkit.azure.deploy import deploy
+from llmkit.azure.deploy import _version_key, catalog, deploy, newest_versions
 from llmkit.azure.inventory import (
     Resource,
     Spend,
@@ -21,7 +21,7 @@ from llmkit.azure.inventory import (
     set_tags,
 )
 from llmkit.azure.source import Azure, default_azure
-from llmkit.errors import AzureConfigError, LLMKitError, SpendUnavailable
+from llmkit.errors import ArmError, AzureConfigError, LLMKitError, SpendUnavailable
 
 READY = "✓"
 NOT_READY = "!"
@@ -135,6 +135,86 @@ def _status(azure: Azure, args: argparse.Namespace) -> int:
     return 0
 
 
+def models_text(
+    pattern: str,
+    resources: Sequence[Resource],
+    offered: Mapping[str, Mapping[str, str] | Exception],
+) -> str:
+    """Render the catalog search: newest version and where each model is deployed.
+
+    Args:
+        pattern: The search text, for the header.
+        resources: The in-order resources, one column each.
+        offered: Each resource name's matching models with their newest version, or
+            the error that prevented reading its catalog.
+
+    Returns:
+        The text to print.
+    """
+    rows = _ordered(resources)
+    found = [o for o in offered.values() if not isinstance(o, Exception)]
+    names = sorted(set().union(*(o.keys() for o in found)) if found else set())
+    lines = []
+    if not names:
+        lines.append(f"No deployable model matches {pattern!r}.")
+    else:
+        lines.append(
+            f"Models matching {pattern!r} (✓ deployed, ! not ready, "
+            "- deployable, x not offered, ? catalog unreadable):"
+        )
+        versions = {
+            n: max(
+                (o[n] for o in found if n in o),
+                key=_version_key,
+            )
+            for n in names
+        }
+        label = max(len(n) for n in names)
+        vwidth = max([len(v) for v in versions.values()] + [7])
+        lines.append(
+            f"{'':<{label}}  {'version':<{vwidth}}  " + "  ".join(r.name for r in rows)
+        )
+        for n in names:
+            cells = []
+            for r in rows:
+                o = offered.get(r.name)
+                d = r.deployment(n)
+                if d is not None:
+                    mark = READY if d.ready else NOT_READY
+                elif isinstance(o, Exception) or o is None:
+                    mark = "?"
+                else:
+                    mark = ABSENT if n in o else "x"
+                cells.append(mark.center(len(r.name)))
+            lines.append(f"{n:<{label}}  {versions[n]:<{vwidth}}  " + "  ".join(cells))
+    errors = [(r.name, offered.get(r.name)) for r in rows]
+    for name, err in errors:
+        if isinstance(err, Exception):
+            lines.append(f"  {name}: catalog unreadable ({err})")
+    return "\n".join(lines) + "\n"
+
+
+def _models(azure: Azure, args: argparse.Namespace) -> int:
+    """Search the in-order resources' catalogs and print the matches.
+
+    Args:
+        azure: The Azure facade.
+        args: Parsed arguments.
+
+    Returns:
+        0 when every catalog was read, otherwise 1.
+    """
+    resources = [r for r in azure.resources() if r.order is not None]
+    offered: dict[str, Mapping[str, str] | Exception] = {}
+    for r in resources:
+        try:
+            offered[r.name] = newest_versions(catalog(azure.arm, r), args.pattern)
+        except ArmError as e:
+            offered[r.name] = e
+    print(models_text(args.pattern, resources, offered), end="")
+    return 1 if any(isinstance(o, Exception) for o in offered.values()) else 0
+
+
 def _deploy(azure: Azure, args: argparse.Namespace) -> int:
     """Deploy a model everywhere in order and print the outcomes.
 
@@ -215,6 +295,11 @@ def _parser() -> argparse.ArgumentParser:
     status = cmds.add_parser("status", help="show spend and deployments per resource")
     status.add_argument("--refresh", action="store_true", help="bypass the caches")
 
+    models = cmds.add_parser(
+        "models", help="list deployable models matching a pattern, and where they are"
+    )
+    models.add_argument("pattern", help="text matched anywhere in the name, any case")
+
     dep = cmds.add_parser("deploy", help="deploy a model to every in-order resource")
     dep.add_argument("model")
     dep.add_argument("--version")
@@ -250,7 +335,7 @@ def main(argv: list[str] | None = None, *, azure: Azure | None = None) -> int:
         if e.code in (0, None):
             raise
         return int(e.code) if isinstance(e.code, int) else 2
-    handlers = {"status": _status, "deploy": _deploy, "tag": _tag}
+    handlers = {"status": _status, "models": _models, "deploy": _deploy, "tag": _tag}
     try:
         return handlers[args.command](azure or default_azure(), args)
     except AzureConfigError as e:

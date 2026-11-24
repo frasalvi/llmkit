@@ -12,6 +12,17 @@ completions on any of the three.
 uv add "llmkit @ git+https://github.com/frasalvi/llmkit@v0.3.0"
 ```
 
+## Commands
+
+```bash
+az login                                     # once per machine; Foundry needs nothing else
+uv run llmkit azure status                   # spend vs cap, and which models are deployed where
+uv run llmkit azure models gpt-6             # deployable models matching a pattern, and where they are
+uv run llmkit azure deploy MODEL --dry-run   # preview deploying MODEL to every in-order resource
+uv run llmkit azure deploy MODEL             # deploy it
+uv run llmkit azure tag ACCOUNT --name N --order 1 --cap 450   # tag a resource (--order off to exclude)
+```
+
 ## Credentials
 
 Copy `.env.example` to `.env` at the project root and fill in the providers you use.
@@ -115,27 +126,16 @@ llm = LLM("glm-5.3", resource="beta")  # pin one
 print(llm.resource)  # "alpha"; also recorded on every CallRecord
 ```
 
-Caps warn and continue. When earlier resources are skipped (over their cap, or lacking
-a ready deployment), llmkit uses the next one in order and emits `AzureRoutingWarning`
-once per model and resource. When every candidate is over its cap, it warns the same
-way and uses the last one. Spend that cannot
-be read raises `SpendUnavailable`; it is never guessed. The inventory is cached for 24
-hours at `~/.cache/llmkit/azure.json` (a failed refresh falls back to it with
-`AzureInventoryWarning`) and spend for 1 hour. Spend figures lag Azure's billing by
-hours.
+Skipped resources (over cap, or no ready deployment) emit `AzureRoutingWarning` once per
+model and resource; if every candidate is over its cap, the last one is used. Unreadable
+spend raises `SpendUnavailable`. The inventory is cached 24 hours and spend 1 hour, at
+`~/.cache/llmkit/azure.json`; spend lags Azure billing by hours.
 
-The command line manages the same resources:
-
-```bash
-llmkit azure status [--refresh]          # spend vs cap per resource, deployment matrix
-llmkit azure deploy glm-5.3 [--version V] [--capacity N] [--dry-run]
-llmkit azure tag acct-a --name alpha --order 1 --cap 450
-```
-
-`deploy` creates the model on every resource with a numeric order that lacks it (newest
-GlobalStandard version, capacity from the subscription's quota, at most 5000) and waits
-for provisioning. `tag` merges the given tags and refuses (exit 2) a result that is
-invalid or that clashes with another resource's name, order or subscription.
+`deploy` (see [Commands](#commands)) skips resources that already have the model, picks
+the newest GlobalStandard version and the largest quota-allowed capacity (at most 5000);
+`--version` and `--capacity` override. Names outside the `claude-`/`gpt-`/`gemini-`
+families need a registry entry first, which maps them to their Foundry deployment name.
+`status --refresh` bypasses the cache.
 
 ## Effort
 

@@ -6,7 +6,7 @@ import pytest
 from helpers import make_resource
 
 from llmkit.azure.arm import Arm
-from llmkit.azure.deploy import DeployOutcome, deploy, deployment_name
+from llmkit.azure.deploy import DeployOutcome, deploy, deployment_name, newest_versions
 from llmkit.azure.inventory import Deployment
 
 FAR = datetime.now(UTC) + timedelta(days=1)
@@ -332,3 +332,20 @@ def test_arm_error_becomes_failed_outcome_and_continues():
         ("beta", "created"),
     ]
     assert "quota exhausted in region" in outs[0].detail
+
+
+def test_newest_versions_filters_by_pattern_and_sku():
+    gs = [{"name": "GlobalStandard"}]
+    entries = [
+        {"name": "gpt-6-sol", "version": "9", "skus": gs},
+        {"name": "gpt-6-sol", "version": "10", "skus": gs},
+        {"name": "GPT-6.1-terra", "version": "2026-01-01", "skus": gs},
+        {"name": "gpt-6-luna", "version": "1", "skus": [{"name": "DataZoneStandard"}]},
+        {"name": "gpt-5.5", "version": "1", "skus": gs},
+    ]
+    assert newest_versions(entries, "gpt-6") == {
+        "gpt-6-sol": "10",
+        "GPT-6.1-terra": "2026-01-01",
+    }
+    assert newest_versions(entries, "TERRA") == {"GPT-6.1-terra": "2026-01-01"}
+    assert newest_versions(entries, "claude") == {}
