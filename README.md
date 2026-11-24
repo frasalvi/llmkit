@@ -9,7 +9,7 @@ completions on any of the three.
 ## Install
 
 ```bash
-uv add "llmkit @ git+https://github.com/frasalvi/llmkit@v0.2.0"
+uv add "llmkit @ git+https://github.com/frasalvi/llmkit@v0.3.0"
 ```
 
 ## Credentials
@@ -17,11 +17,15 @@ uv add "llmkit @ git+https://github.com/frasalvi/llmkit@v0.2.0"
 Copy `.env.example` to `.env` at the project root and fill in the providers you use.
 Values in the nearest `.env` win over shell variables of the same name.
 
-| Provider | Variables |
+| Provider | Setup |
 |---|---|
-| Foundry | `AZURE_API_KEY`, `AZURE_ENDPOINT` (e.g. `https://<resource>.services.ai.azure.com`) |
+| Foundry | `az login`, and nothing else. llmkit finds your tagged resources and fetches their keys at runtime; keys are never written to disk. See [Azure resources](#azure-resources). |
 | Vertex | `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` (default `global`), and `gcloud auth application-default login` or `GOOGLE_APPLICATION_CREDENTIALS` |
 | OpenRouter | `OPENROUTER_API_KEY` |
+
+For a machine without `az login`, set `AZURE_API_KEY` and `AZURE_ENDPOINT` (e.g.
+`https://<resource>.services.ai.azure.com`) together, or pass `azure_key=` and
+`azure_endpoint=` to `LLM`. That bypasses tag routing and spend caps.
 
 ## Quickstart
 
@@ -77,6 +81,58 @@ result = await llm.acomplete("...")
 | anything else | registered models (`deepseek-v4-pro`, `glm-5.3`, `kimi-k3`), or any name with `provider="foundry" / "vertex" / "openrouter"` over chat completions |
 
 Names must be exact; there are no aliases.
+
+## Azure resources
+
+Foundry models are served by whichever of your Azure resources is first in a spending
+order and still under its monthly cap. You describe the resources with tags; llmkit
+reads them through Azure Resource Manager with your `az login`.
+
+Tag each Foundry resource (resources without `llmkit-name` are invisible to llmkit):
+
+| Tag | Value | Meaning |
+|---|---|---|
+| `llmkit-name` | short name, e.g. `alpha` | what `resource=` and the CLI use |
+| `llmkit-order` | `1`, `2`, ... or `off` | position in the spending order; `off` is never picked automatically |
+| `llmkit-cap` | USD, e.g. `450` | monthly cap on the resource's **subscription** spend; required with a numeric order |
+| `llmkit-anthropic-org` | `Example University\|Education\|US` | organization details sent when deploying Claude models |
+
+Names are unique, numeric orders are unique, and a subscription holds at most one
+tagged resource; discovery raises `AzureConfigError` otherwise.
+
+Which resource a call uses, highest precedence first:
+
+1. `LLM(..., azure_key=..., azure_endpoint=...)`, both required.
+2. `LLM(..., resource="alpha")`, the named resource even if tagged `off`.
+3. `AZURE_API_KEY` and `AZURE_ENDPOINT` in `.env` or the environment. These work but
+   emit `AzureEnvKeyWarning` on every construction, because they bypass tags and caps.
+4. Tag order: the first resource with a ready deployment of the model whose
+   subscription spend is under its cap.
+
+```python
+llm = LLM("glm-5.3")  # first under-cap resource with FW-GLM-5.3
+llm = LLM("glm-5.3", resource="beta")  # pin one
+print(llm.resource)  # "alpha"; also recorded on every CallRecord
+```
+
+Caps warn and continue: when a resource is skipped or every resource is over its cap,
+llmkit emits `AzureRoutingWarning` once and uses the last candidate. Spend that cannot
+be read raises `SpendUnavailable`; it is never guessed. The inventory is cached for 24
+hours at `~/.cache/llmkit/azure.json` (a failed refresh falls back to it with
+`AzureInventoryWarning`) and spend for 1 hour. Spend figures lag Azure's billing by
+hours.
+
+The command line manages the same resources:
+
+```bash
+llmkit azure status [--refresh]          # spend vs cap per resource, deployment matrix
+llmkit azure deploy glm-5.3 [--version V] [--capacity N] [--dry-run]
+llmkit azure tag acct-a --name alpha --order 1 --cap 450
+```
+
+`deploy` creates the model on every resource with a numeric order that lacks it (newest
+GlobalStandard version, capacity from the subscription's quota, at most 5000) and waits
+for provisioning. `tag` merges the given tags and validates the result first.
 
 ## Effort
 

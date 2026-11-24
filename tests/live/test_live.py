@@ -4,6 +4,8 @@ Costs a few dollars. A 404 means the model is not deployed on this account and t
 case is skipped, not failed.
 """
 
+import shutil
+
 import pytest
 from pydantic import BaseModel
 
@@ -192,3 +194,37 @@ def test_query_replays_from_cache(tmp_path):
     assert first.ok == 2 and first.new_cost > 0
     assert second.new_calls == 0 and second.new_cost == 0
     assert out.read_text(encoding="utf-8") == before
+
+
+needs_az = pytest.mark.skipif(shutil.which("az") is None, reason="az CLI not installed")
+
+
+@needs_az
+def test_live_azure_status():
+    from llmkit.azure import Azure
+
+    azure = Azure()
+    try:
+        resources = azure.resources(refresh=True)
+    except MissingCredential as exc:
+        pytest.skip(str(exc))
+    if not resources:
+        pytest.skip("no Azure resources are tagged llmkit-name")
+    for r in resources:
+        spend = azure.spend(r, refresh=True)
+        assert isinstance(spend.amount, float) and spend.currency == "USD"
+
+
+@needs_az
+def test_live_auto_selection():
+    from llmkit import UnknownModel
+
+    try:
+        llm = LLM("claude-haiku-4-5", env={}, max_retries=2, timeout=180)
+    except (MissingCredential, UnknownModel) as exc:
+        pytest.skip(f"{exc} (run `llmkit azure deploy claude-haiku-4-5`?)")
+    assert llm.resource is not None
+    result = guarded(
+        lambda: llm.complete("Reply with the single word: pong", max_tokens=200)
+    )
+    assert "pong" in result.text.lower()

@@ -2,7 +2,9 @@
 
 Where endpoints and keys come from. One fixed set of variable names is used in every
 project. Values in the nearest ``.env`` win over the process environment, so a stray
-shell ``export`` cannot silently redirect a run to another resource.
+shell ``export`` cannot silently redirect a run to another resource. Foundry needs no
+variables: its key and endpoint come from Azure tags (see :mod:`llmkit.azure`), and
+``AZURE_API_KEY`` plus ``AZURE_ENDPOINT`` act only as an override.
 """
 
 from __future__ import annotations
